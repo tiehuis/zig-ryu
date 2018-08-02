@@ -394,7 +394,7 @@ const eql = std.mem.eql;
 
 test "f2s basic" {
     assert(eql(u8, "0E0", try f2s(al, 0.0)));
-    //assert(eql(u8, "-0E0", try f2s(al, -0.0)));
+    assert(eql(u8, "-0E0", try f2s(al, -f32(0.0))));
     assert(eql(u8, "1E0", try f2s(al, 1.0)));
     assert(eql(u8, "-1E0", try f2s(al, -1.0)));
     assert(eql(u8, "nan", try f2s(al, std.math.nan(f32))));

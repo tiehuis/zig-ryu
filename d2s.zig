@@ -573,7 +573,7 @@ const eql = std.mem.eql;
 
 test "d2s basic" {
     assert(eql(u8, "0E0", try d2s(al, 0.0)));
-    //assert(eql(u8, "-0E0", try d2s(al, -0.0)));
+    assert(eql(u8, "-0E0", try d2s(al, -f64(0.0))));
     assert(eql(u8, "1E0", try d2s(al, 1.0)));
     assert(eql(u8, "-1E0", try d2s(al, -1.0)));
     assert(eql(u8, "nan", try d2s(al, std.math.nan(f64))));
