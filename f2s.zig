@@ -149,12 +149,7 @@ fn f2s_buffered_n(f: f32, result: []u8) usize {
     const ieeeExponent = (bits >> mantissaBits) & ((1 << exponentBits) - 1);
 
     if (ryu_debug) {
-        std.debug.warn("IN=");
-        var bit: i32 = 31;
-        while (bit >= 0) : (bit -= 1) {
-            std.debug.warn("{}", (bits >> @intCast(u5, bit)) & 1);
-        }
-        std.debug.warn("\n");
+        std.debug.warn("IN={b}\n", bits);
     }
 
     var e2: i32 = undefined;
@@ -229,7 +224,7 @@ fn f2s_buffered_n(f: f32, result: []u8) usize {
         const q = log10Pow5(-e2);
         e10 = q + e2;
         const i = -e2 - q;
-        const k = @intCast(i32, pow5bits(i)) - @intCast(i32, FLOAT_POW5_BITCOUNT);
+        const k = @intCast(i32, pow5bits(i)) - FLOAT_POW5_BITCOUNT;
         var j = q - @intCast(i32, k);
         vr = mulPow5divPow2(mv, @intCast(u32, i), j);
         vp = mulPow5divPow2(mp, @intCast(u32, i), j);
