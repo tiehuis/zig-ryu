@@ -1,0 +1,3 @@
+[submodule "ryu"]
+	path = ryu
+	url = https://github.com/ulfjack/ryu

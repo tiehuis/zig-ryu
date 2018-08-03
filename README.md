@@ -1,5 +1,13 @@
 Conversion of https://github.com/ulfjack/ryu to [zig](https://ziglang.org/).
 
+## Install
+
+```
+git clone --recurse-submodules https://github.com/tiehuis/zig-ryu
+```
+
+## Todo
+
  - [ ] Review all manual casts
  - [ ] Make more idiomatic
  - [ ] Add f16 variant
@@ -8,3 +16,4 @@ Conversion of https://github.com/ulfjack/ryu to [zig](https://ziglang.org/).
    slows things down a fair bit).
  - [ ] Benchmark against current float printing code (memory
    consumption/performance).
+
