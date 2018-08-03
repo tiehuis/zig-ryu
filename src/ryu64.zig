@@ -94,7 +94,7 @@ const POW5_INV_OFFSETS = []const u32{
 };
 
 // Computes 5^i in the form required by Ryu, and stores it in the given pointer.
-fn double_computePow5(i: u32, result: []u64) void {
+fn computePow5(i: u32, result: []u64) void {
     const base = i / POW5_TABLE_SIZE;
     const base2 = base * POW5_TABLE_SIZE;
     const offset = i - base2;
@@ -107,14 +107,14 @@ fn double_computePow5(i: u32, result: []u64) void {
     const m = DOUBLE_POW5_TABLE[offset];
     const b0 = u128(m) * mul[0];
     const b2 = u128(m) * mul[1];
-    const delta = pow5bits(@intCast(i32, i)) - pow5bits(@intCast(i32, base2));
-    const shiftedSum = (b0 >> @intCast(u7, delta)) + (b2 << @intCast(u7, 64 - delta)) + ((POW5_OFFSETS[base] >> @intCast(u5, offset)) & 1);
-    result[0] = @truncate(u64, shiftedSum);
-    result[1] = @intCast(u64, shiftedSum >> 64);
+    const delta = pow5Bits(@intCast(i32, i)) - pow5Bits(@intCast(i32, base2));
+    const shifted_sum = (b0 >> @intCast(u7, delta)) + (b2 << @intCast(u7, 64 - delta)) + ((POW5_OFFSETS[base] >> @intCast(u5, offset)) & 1);
+    result[0] = @truncate(u64, shifted_sum);
+    result[1] = @intCast(u64, shifted_sum >> 64);
 }
 
 // Computes 5^-i in the form required by Ryu, and stores it in the given pointer.
-fn double_computeInvPow5(i: u32, result: []u64) void {
+fn computeInvPow5(i: u32, result: []u64) void {
     const base = (i + POW5_TABLE_SIZE - 1) / POW5_TABLE_SIZE;
     const base2 = base * POW5_TABLE_SIZE;
     const offset = base2 - i;
@@ -127,10 +127,10 @@ fn double_computeInvPow5(i: u32, result: []u64) void {
     const m = DOUBLE_POW5_TABLE[offset]; // 5^offset
     const b0 = u128(m) * (mul[0] - 1);
     const b2 = u128(m) * mul[1]; // 1/5^base2 * 5^offset = 1/5^(base2-offset) = 1/5^i
-    const delta = pow5bits(@intCast(i32, base2)) - pow5bits(@intCast(i32, i));
-    const shiftedSum = ((b0 >> @intCast(u7, delta)) + (b2 << @intCast(u7, 64 - delta))) + 1 + ((POW5_INV_OFFSETS[i / 16] >> @intCast(u5, ((i % 16) << 1))) & 3);
-    result[0] = @truncate(u64, shiftedSum);
-    result[1] = @intCast(u64, shiftedSum >> 64);
+    const delta = pow5Bits(@intCast(i32, base2)) - pow5Bits(@intCast(i32, i));
+    const shifted_sum = ((b0 >> @intCast(u7, delta)) + (b2 << @intCast(u7, 64 - delta))) + 1 + ((POW5_INV_OFFSETS[i / 16] >> @intCast(u5, ((i % 16) << 1))) & 3);
+    result[0] = @truncate(u64, shifted_sum);
+    result[1] = @intCast(u64, shifted_sum >> 64);
 }
 
 // Best case: use 128-bit type.
@@ -140,9 +140,9 @@ fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
     return @truncate(u64, (((b0 >> 64) + b2) >> @intCast(u7, (j - 64))));
 }
 
-fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mmShift: u32) u64 {
+fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mm_shift: u32) u64 {
     vp.* = mulShift(4 * m + 2, mul, j);
-    vm.* = mulShift(4 * m - 1 - mmShift, mul, j);
+    vm.* = mulShift(4 * m - 1 - mm_shift, mul, j);
     return mulShift(4 * m, mul, j);
 }
 
@@ -168,8 +168,9 @@ fn decimalLength(v: u64) u32 {
     return i;
 }
 
-const mantissaBits = std.math.floatMantissaBits(f64);
-const exponentBits = std.math.floatExponentBits(f64);
+const mantissa_bits = std.math.floatMantissaBits(f64);
+const exponent_bits = std.math.floatExponentBits(f64);
+const exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
 const Decimal64 = struct {
     mantissa: u64,
@@ -189,42 +190,40 @@ pub fn ryu64(f: f64, result: []u8) []u8 {
     const bits = @bitCast(u64, f);
 
     // Decode bits into sign, mantissa, and exponent.
-    const sign = ((bits >> (mantissaBits + exponentBits)) & 1) != 0;
-    const ieeeMantissa = bits & ((1 << mantissaBits) - 1);
-    const ieeeExponent = (bits >> mantissaBits) & ((1 << exponentBits) - 1);
+    const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
+    const mantissa = bits & ((1 << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((1 << exponent_bits) - 1);
 
     // Case distinction; exit early for the easy cases.
-    if (ieeeExponent == ((1 << exponentBits) - 1) or (ieeeExponent == 0 and ieeeMantissa == 0)) {
-        const index = copy_special_str(result, sign, ieeeExponent != 0, ieeeMantissa != 0);
+    if (exponent == ((1 << exponent_bits) - 1) or (exponent == 0 and mantissa == 0)) {
+        const index = copySpecialString(result, sign, exponent != 0, mantissa != 0);
         return result[0..index];
     }
 
-    const v = floatToDecimal(ieeeMantissa, ieeeExponent);
+    const v = floatToDecimal(mantissa, exponent);
     const index = decimalToBuffer(v, sign, result);
     return result[0..index];
 }
 
-fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
-    const offset = (1 << (exponentBits - 1)) - 1;
-
+fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
     if (ryu_debug) {
-        const bits = (ieeeExponent << mantissaBits) | ieeeMantissa;
+        const bits = (exponent << mantissa_bits) | mantissa;
         std.debug.warn("IN={b}\n", bits);
     }
 
     var e2: i32 = undefined;
     var m2: u64 = undefined;
 
-    if (ieeeExponent == 0) {
+    if (exponent == 0) {
         // We subtract 2 so that the bounds computation has 2 additional bits.
-        e2 = 1 - offset - mantissaBits - 2;
-        m2 = ieeeMantissa;
+        e2 = 1 - exponent_bias - mantissa_bits - 2;
+        m2 = mantissa;
     } else {
-        e2 = @intCast(i32, ieeeExponent) - offset - mantissaBits - 2;
-        m2 = (1 << mantissaBits) | ieeeMantissa;
+        e2 = @intCast(i32, exponent) - exponent_bias - mantissa_bits - 2;
+        m2 = (1 << mantissa_bits) | mantissa;
     }
     const even = (m2 & 1) == 0;
-    const acceptBounds = even;
+    const accept_bounds = even;
 
     if (ryu_debug) {
         std.debug.warn("E={} M={}\n", e2 + 2, m2);
@@ -233,33 +232,33 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
-    const mmShift = (m2 != (1 << mantissaBits)) or (ieeeExponent <= 1);
+    const mm_shift = (m2 != (1 << mantissa_bits)) or (exponent <= 1);
     // We would compute mp and mm like this:
     //  uint64_t mp = 4 * m2 + 2;
-    //  uint64_t mm = mv - 1 - mmShift;
+    //  uint64_t mm = mv - 1 - mm_shift;
 
     // Step 3: Convert to a decimal power base using 128-bit arithmetic.
     var vr: u64 = undefined;
     var vp: u64 = undefined;
     var vm: u64 = undefined;
     var e10: i32 = undefined;
-    var vmIsTrailingZeros = false;
-    var vrIsTrailingZeros = false;
+    var vm_is_trailing_zeros = false;
+    var vr_is_trailing_zeros = false;
 
     if (e2 >= 0) {
         // I tried special-casing q == 0, but there was no effect on performance.
         // This expression is slightly faster than max(0, log10Pow2(e2) - 1).
         const q = log10Pow2(e2) - @intCast(i32, @boolToInt(e2 > 3));
         e10 = q;
-        const k = DOUBLE_POW5_INV_BITCOUNT + pow5bits(q) - 1;
+        const k = DOUBLE_POW5_INV_BITCOUNT + pow5Bits(q) - 1;
         const i = -e2 + @intCast(i32, q) + @intCast(i32, k);
 
         if (ryu_optimize_size) {
             var pow5: [2]u64 = undefined;
-            double_computeInvPow5(@intCast(u32, q), pow5[0..]);
-            vr = mulShiftAll(m2, pow5, i, &vp, &vm, @boolToInt(mmShift));
+            computeInvPow5(@intCast(u32, q), pow5[0..]);
+            vr = mulShiftAll(m2, pow5, i, &vp, &vm, @boolToInt(mm_shift));
         } else {
-            vr = mulShiftAll(m2, DOUBLE_POW5_INV_SPLIT[@intCast(usize, q)], i, &vp, &vm, @boolToInt(mmShift));
+            vr = mulShiftAll(m2, DOUBLE_POW5_INV_SPLIT[@intCast(usize, q)], i, &vp, &vm, @boolToInt(mm_shift));
         }
 
         if (ryu_debug) {
@@ -269,13 +268,13 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
         if (q <= 21) {
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5 == 0) {
-                vrIsTrailingZeros = multipleOfPowerOf5(mv, q);
+                vr_is_trailing_zeros = multipleOfPowerOf5(mv, q);
             } else {
-                if (acceptBounds) {
+                if (accept_bounds) {
                     // Same as min(e2 + (~mm & 1), pow5Factor(mm)) >= q
                     // <=> e2 + (~mm & 1) >= q && pow5Factor(mm) >= q
                     // <=> true && pow5Factor(mm) >= q, since e2 >= q.
-                    vmIsTrailingZeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mmShift), q);
+                    vm_is_trailing_zeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
                 } else {
                     // Same as min(e2 + 1, pow5Factor(mp)) >= q.
                     vp -= @boolToInt(multipleOfPowerOf5(mv + 2, q));
@@ -287,15 +286,15 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
         const q = log10Pow5(-e2) - @intCast(i32, @boolToInt(-e2 > 1));
         e10 = q + e2;
         const i = -e2 - q;
-        const k = @intCast(i32, pow5bits(i)) - DOUBLE_POW5_BITCOUNT;
+        const k = @intCast(i32, pow5Bits(i)) - DOUBLE_POW5_BITCOUNT;
         const j = q - k;
 
         if (ryu_optimize_size) {
             var pow5: [2]u64 = undefined;
-            double_computePow5(@intCast(u32, i), pow5[0..]);
-            vr = mulShiftAll(m2, pow5, j, &vp, &vm, @boolToInt(mmShift));
+            computePow5(@intCast(u32, i), pow5[0..]);
+            vr = mulShiftAll(m2, pow5, j, &vp, &vm, @boolToInt(mm_shift));
         } else {
-            vr = mulShiftAll(m2, DOUBLE_POW5_SPLIT[@intCast(usize, i)], j, &vp, &vm, @boolToInt(mmShift));
+            vr = mulShiftAll(m2, DOUBLE_POW5_SPLIT[@intCast(usize, i)], j, &vp, &vm, @boolToInt(mm_shift));
         }
 
         if (ryu_debug) {
@@ -305,9 +304,9 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
         }
 
         if (q <= 1) {
-            vrIsTrailingZeros = (~@truncate(u32, mv) & 1) >= @intCast(u32, q);
-            if (acceptBounds) {
-                vmIsTrailingZeros = (~@truncate(u32, mv - 1 - @boolToInt(mmShift)) & 1) >= @intCast(u32, q);
+            vr_is_trailing_zeros = (~@truncate(u32, mv) & 1) >= @intCast(u32, q);
+            if (accept_bounds) {
+                vm_is_trailing_zeros = (~@truncate(u32, mv - 1 - @boolToInt(mm_shift)) & 1) >= @intCast(u32, q);
             } else {
                 vp -= 1;
             }
@@ -317,10 +316,10 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
             // <=> ntz(mv) >= q-1
             // <=> (mv & ((1 << (q-1)) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
-            vrIsTrailingZeros = (mv & ((u64(1) << @intCast(u6, q - 1)) - 1)) == 0;
+            vr_is_trailing_zeros = (mv & ((u64(1) << @intCast(u6, q - 1)) - 1)) == 0;
 
             if (ryu_debug) {
-                std.debug.warn("vr is trailing zeros={}\n", vrIsTrailingZeros);
+                std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
             }
         }
     }
@@ -328,21 +327,21 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
     if (ryu_debug) {
         std.debug.warn("e10={}\n", e10);
         std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        std.debug.warn("vm is trailing zeros={}\n", vmIsTrailingZeros);
-        std.debug.warn("vr is trailing zeros={}\n", vrIsTrailingZeros);
+        std.debug.warn("vm is trailing zeros={}\n", vm_is_trailing_zeros);
+        std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
     }
 
     // Step 4: Find the shortest decimal representation in the interval of legal representations.
     var removed: u32 = 0;
-    var lastRemovedDigit: u8 = 0;
+    var last_removed_digit: u8 = 0;
     var output: u64 = undefined;
     // On average, we remove ~2 digits.
-    if (vmIsTrailingZeros or vrIsTrailingZeros) {
+    if (vm_is_trailing_zeros or vr_is_trailing_zeros) {
         // General case, which happens rarely (<1%).
         while (vp / 10 > vm / 10) {
-            vmIsTrailingZeros = vmIsTrailingZeros and vm % 10 == 0;
-            vrIsTrailingZeros = vrIsTrailingZeros and lastRemovedDigit == 0;
-            lastRemovedDigit = @intCast(u8, vr % 10);
+            vm_is_trailing_zeros = vm_is_trailing_zeros and vm % 10 == 0;
+            vr_is_trailing_zeros = vr_is_trailing_zeros and last_removed_digit == 0;
+            last_removed_digit = @intCast(u8, vr % 10);
             vr /= 10;
             vp /= 10;
             vm /= 10;
@@ -351,13 +350,13 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
 
         if (ryu_debug) {
             std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-            std.debug.warn("d-10={}\n", vmIsTrailingZeros);
+            std.debug.warn("d-10={}\n", vm_is_trailing_zeros);
         }
 
-        if (vmIsTrailingZeros) {
+        if (vm_is_trailing_zeros) {
             while (vm % 10 == 0) {
-                vrIsTrailingZeros = vrIsTrailingZeros and lastRemovedDigit == 0;
-                lastRemovedDigit = @intCast(u8, vr % 10);
+                vr_is_trailing_zeros = vr_is_trailing_zeros and last_removed_digit == 0;
+                last_removed_digit = @intCast(u8, vr % 10);
                 vr /= 10;
                 vp /= 10;
                 vm /= 10;
@@ -366,21 +365,21 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
         }
 
         if (ryu_debug) {
-            std.debug.warn("{} %d\n", vr, lastRemovedDigit);
-            std.debug.warn("vr is trailing zeros={}\n", vrIsTrailingZeros);
+            std.debug.warn("{} %d\n", vr, last_removed_digit);
+            std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
         }
 
-        if (vrIsTrailingZeros and (lastRemovedDigit == 5) and (vr % 2 == 0)) {
+        if (vr_is_trailing_zeros and (last_removed_digit == 5) and (vr % 2 == 0)) {
             // Round down not up if the number ends in X50000.
-            lastRemovedDigit = 4;
+            last_removed_digit = 4;
         }
         // We need to take vr+1 if vr is outside bounds or we need to round up.
         output = vr +
-            @boolToInt((vr == vm and (!acceptBounds or !vmIsTrailingZeros)) or (lastRemovedDigit >= 5));
+            @boolToInt((vr == vm and (!accept_bounds or !vm_is_trailing_zeros)) or (last_removed_digit >= 5));
     } else {
         // Specialized for the common case (>99%).
         while (vp / 10 > vm / 10) {
-            lastRemovedDigit = @intCast(u8, vr % 10);
+            last_removed_digit = @intCast(u8, vr % 10);
             vr /= 10;
             vp /= 10;
             vm /= 10;
@@ -388,12 +387,12 @@ fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
         }
 
         if (ryu_debug) {
-            std.debug.warn("{} {}\n", vr, lastRemovedDigit);
-            std.debug.warn("vr is trailing zeros={}\n", vrIsTrailingZeros);
+            std.debug.warn("{} {}\n", vr, last_removed_digit);
+            std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
         }
 
         // We need to take vr+1 if vr is outside bounds or we need to round up.
-        output = vr + @boolToInt((vr == vm) or (lastRemovedDigit >= 5));
+        output = vr + @boolToInt((vr == vm) or (last_removed_digit >= 5));
     }
 
     var exp = e10 + @intCast(i32, removed) - 1;

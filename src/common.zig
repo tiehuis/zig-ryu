@@ -19,7 +19,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // Returns e == 0 ? 1 : ceil(log_2(5^e)).
-pub inline fn pow5bits(e: i32) u32 {
+pub inline fn pow5Bits(e: i32) u32 {
     // This approximation works up to the point that the multiplication overflows at e = 3529.
     // If the multiplication were done in 64 bits, it would fail at 5^4004 which is just greater
     // than 2^9297.
@@ -67,7 +67,7 @@ pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
     return pow5Factor(value) >= p;
 }
 
-pub fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
+pub fn copySpecialString(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
     if (mantissa) {
         std.mem.copy(u8, result, "NaN");
         return 3;
