@@ -152,55 +152,20 @@ inline fn decimalLength(v: u64) u32 {
     // Function precondition: v is not an 18, 19, or 20-digit number.
     // (17 digits are sufficient for round-tripping.)
     std.debug.assert(v < 100000000000000000);
-    if (v >= 10000000000000000) {
-        return 17;
+
+    comptime var n = 10000000000000000;
+    comptime var i = 17;
+
+    inline while (n != 1) : ({
+        n /= 10;
+        i -= 1;
+    }) {
+        if (v >= n) {
+            return i;
+        }
     }
-    if (v >= 1000000000000000) {
-        return 16;
-    }
-    if (v >= 100000000000000) {
-        return 15;
-    }
-    if (v >= 10000000000000) {
-        return 14;
-    }
-    if (v >= 1000000000000) {
-        return 13;
-    }
-    if (v >= 100000000000) {
-        return 12;
-    }
-    if (v >= 10000000000) {
-        return 11;
-    }
-    if (v >= 1000000000) {
-        return 10;
-    }
-    if (v >= 100000000) {
-        return 9;
-    }
-    if (v >= 10000000) {
-        return 8;
-    }
-    if (v >= 1000000) {
-        return 7;
-    }
-    if (v >= 100000) {
-        return 6;
-    }
-    if (v >= 10000) {
-        return 5;
-    }
-    if (v >= 1000) {
-        return 4;
-    }
-    if (v >= 100) {
-        return 3;
-    }
-    if (v >= 10) {
-        return 2;
-    }
-    return 1;
+
+    return i;
 }
 
 fn d2s_buffered_n(f: f64, result: []u8) usize {

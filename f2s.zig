@@ -84,31 +84,20 @@ inline fn decimalLength(v: u32) usize {
     // Function precondition: v is not a 10-digit number.
     // (9 digits are sufficient for round-tripping.)
     std.debug.assert(v < 1000000000);
-    if (v >= 100000000) {
-        return 9;
+
+    comptime var n = 100000000;
+    comptime var i = 9;
+
+    inline while (n != 1) : ({
+        n /= 10;
+        i -= 1;
+    }) {
+        if (v >= n) {
+            return i;
+        }
     }
-    if (v >= 10000000) {
-        return 8;
-    }
-    if (v >= 1000000) {
-        return 7;
-    }
-    if (v >= 100000) {
-        return 6;
-    }
-    if (v >= 10000) {
-        return 5;
-    }
-    if (v >= 1000) {
-        return 4;
-    }
-    if (v >= 100) {
-        return 3;
-    }
-    if (v >= 10) {
-        return 2;
-    }
-    return 1;
+
+    return i;
 }
 
 fn f2s_buffered_n(f: f32, result: []u8) usize {
