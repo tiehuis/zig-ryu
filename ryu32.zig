@@ -108,12 +108,12 @@ const Decimal32 = struct {
     exponent: i32,
 };
 
-fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
+pub fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
     var result = try allocator.alloc(u8, 16);
     return ryu32(f, result);
 }
 
-fn ryu32(f: f32, result: []u8) []u8 {
+pub fn ryu32(f: f32, result: []u8) []u8 {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
     // This only works on little-endian architectures.
     const bits = @bitCast(u32, f);
