@@ -94,7 +94,7 @@ const POW5_INV_OFFSETS = []const u32{
 };
 
 // Computes 5^i in the form required by Ryu, and stores it in the given pointer.
-inline fn double_computePow5(i: u32, result: []u64) void {
+fn double_computePow5(i: u32, result: []u64) void {
     const base = i / POW5_TABLE_SIZE;
     const base2 = base * POW5_TABLE_SIZE;
     const offset = i - base2;
@@ -114,7 +114,7 @@ inline fn double_computePow5(i: u32, result: []u64) void {
 }
 
 // Computes 5^-i in the form required by Ryu, and stores it in the given pointer.
-inline fn double_computeInvPow5(i: u32, result: []u64) void {
+fn double_computeInvPow5(i: u32, result: []u64) void {
     const base = (i + POW5_TABLE_SIZE - 1) / POW5_TABLE_SIZE;
     const base2 = base * POW5_TABLE_SIZE;
     const offset = base2 - i;
@@ -134,19 +134,19 @@ inline fn double_computeInvPow5(i: u32, result: []u64) void {
 }
 
 // Best case: use 128-bit type.
-inline fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
+fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
     const b0 = u128(m) * mul[0];
     const b2 = u128(m) * mul[1];
     return @truncate(u64, (((b0 >> 64) + b2) >> @intCast(u7, (j - 64))));
 }
 
-inline fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mmShift: u32) u64 {
+fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mmShift: u32) u64 {
     vp.* = mulShift(4 * m + 2, mul, j);
     vm.* = mulShift(4 * m - 1 - mmShift, mul, j);
     return mulShift(4 * m, mul, j);
 }
 
-inline fn decimalLength(v: u64) u32 {
+fn decimalLength(v: u64) u32 {
     // This is slightly faster than a loop.
     // The average output length is 16.38 digits, so we check high-to-low.
     // Function precondition: v is not an 18, 19, or 20-digit number.

@@ -44,7 +44,7 @@ pub inline fn log10Pow5(e: i32) i32 {
     return @intCast(i32, (@intCast(u32, e) * 732923) >> 20);
 }
 
-inline fn pow5Factor(n: var) i32 {
+fn pow5Factor(n: var) i32 {
     var value = n;
     var count: i32 = 0;
 
@@ -67,7 +67,7 @@ pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
     return pow5Factor(value) >= p;
 }
 
-pub inline fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
+pub fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
     if (mantissa) {
         std.mem.copy(u8, result, "NaN");
         return 3;

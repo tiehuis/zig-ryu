@@ -56,7 +56,7 @@ const FLOAT_POW5_SPLIT = []const u64{
 
 // It seems to be slightly faster to avoid uint128_t here, although the
 // generated code for uint128_t looks slightly nicer.
-inline fn mulShift(m: u32, factor: u64, shift: i32) u32 {
+fn mulShift(m: u32, factor: u64, shift: i32) u32 {
     std.debug.assert(shift > 32);
 
     // The casts here help MSVC to avoid calls to the __allmul library
@@ -72,15 +72,15 @@ inline fn mulShift(m: u32, factor: u64, shift: i32) u32 {
     return @truncate(u32, shiftedSum);
 }
 
-inline fn mulPow5InvDivPow2(m: u32, q: u32, j: i32) u32 {
+fn mulPow5InvDivPow2(m: u32, q: u32, j: i32) u32 {
     return mulShift(m, FLOAT_POW5_INV_SPLIT[q], j);
 }
 
-inline fn mulPow5divPow2(m: u32, i: u32, j: i32) u32 {
+fn mulPow5divPow2(m: u32, i: u32, j: i32) u32 {
     return mulShift(m, FLOAT_POW5_SPLIT[i], j);
 }
 
-inline fn decimalLength(v: u32) usize {
+fn decimalLength(v: u32) usize {
     // Function precondition: v is not a 10-digit number.
     // (9 digits are sufficient for round-tripping.)
     std.debug.assert(v < 1000000000);
