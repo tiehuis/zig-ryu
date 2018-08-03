@@ -6,6 +6,16 @@ Conversion of https://github.com/ulfjack/ryu to [zig](https://ziglang.org/).
 git clone --recurse-submodules https://github.com/tiehuis/zig-ryu
 ```
 
+## Benchmarks
+
+Requires `sh`, `make`, `cmake`, `c++`, `zig`
+
+```
+./build.sh
+./bench-reference # reference timing
+./bench-zig       # zig timing
+```
+
 ## Todo
 
  - [ ] Review all manual casts
