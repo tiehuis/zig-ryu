@@ -168,12 +168,21 @@ inline fn decimalLength(v: u64) u32 {
     return i;
 }
 
-fn d2s_buffered_n(f: f64, result: []u8) usize {
-    // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
-    const mantissaBits = std.math.floatMantissaBits(f64);
-    const exponentBits = std.math.floatExponentBits(f64);
-    const offset = (1 << (exponentBits - 1)) - 1;
+const mantissaBits = std.math.floatMantissaBits(f64);
+const exponentBits = std.math.floatExponentBits(f64);
 
+const Decimal64 = struct {
+    mantissa: u64,
+    exponent: i32,
+};
+
+fn d2s(allocator: *std.mem.Allocator, f: f64) ![]u8 {
+    var result = try allocator.alloc(u8, 25);
+    return d2s_buffered(f, result);
+}
+
+fn d2s_buffered(f: f64, result: []u8) []u8 {
+    // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
     // This only works on little-endian architectures.
     const bits = @bitCast(u64, f);
 
@@ -182,17 +191,29 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     const ieeeMantissa = bits & ((1 << mantissaBits) - 1);
     const ieeeExponent = (bits >> mantissaBits) & ((1 << exponentBits) - 1);
 
+    // Case distinction; exit early for the easy cases.
+    if (ieeeExponent == ((1 << exponentBits) - 1) or (ieeeExponent == 0 and ieeeMantissa == 0)) {
+        const index = copy_special_str(result, sign, ieeeExponent != 0, ieeeMantissa != 0);
+        return result[0..index];
+    }
+
+    const v = floatToDecimal(ieeeMantissa, ieeeExponent);
+    const index = decimalToBuffer(v, sign, result);
+    return result[0..index];
+}
+
+fn floatToDecimal(ieeeMantissa: u64, ieeeExponent: u64) Decimal64 {
+    const offset = (1 << (exponentBits - 1)) - 1;
+
     if (ryu_debug) {
+        const bits = (ieeeExponent << mantissaBits) | ieeeMantissa;
         std.debug.warn("IN={b}\n", bits);
     }
 
     var e2: i32 = undefined;
     var m2: u64 = undefined;
 
-    // Case distinction; exit early for the easy cases.
-    if (ieeeExponent == ((1 << exponentBits) - 1) or (ieeeExponent == 0 and ieeeMantissa == 0)) {
-        return copy_special_str(result, sign, ieeeExponent != 0, ieeeMantissa != 0);
-    } else if (ieeeExponent == 0) {
+    if (ieeeExponent == 0) {
         // We subtract 2 so that the bounds computation has 2 additional bits.
         e2 = 1 - offset - mantissaBits - 2;
         m2 = ieeeMantissa;
@@ -204,7 +225,7 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     const acceptBounds = even;
 
     if (ryu_debug) {
-        std.debug.warn("S={} E={} M={}\n", if (sign) "-" else "+", e2 + 2, m2);
+        std.debug.warn("E={} M={}\n", e2 + 2, m2);
     }
 
     // Step 2: Determine the interval of legal decimal representations.
@@ -372,8 +393,7 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
         // We need to take vr+1 if vr is outside bounds or we need to round up.
         output = vr + @boolToInt((vr == vm) or (lastRemovedDigit >= 5));
     }
-    // The average output length is 16.38 digits.
-    const olength = decimalLength(output);
+
     var exp = e10 + @intCast(i32, removed) - 1;
 
     if (ryu_debug) {
@@ -381,6 +401,16 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
         std.debug.warn("O={}\n", output);
         std.debug.warn("EXP={}\n", exp);
     }
+
+    return Decimal64{
+        .mantissa = output,
+        .exponent = exp,
+    };
+}
+
+fn decimalToBuffer(v: Decimal64, sign: bool, result: []u8) usize {
+    var output = v.mantissa;
+    const olength = decimalLength(output);
 
     // Step 5: Print the decimal representation.
     var index: usize = 0;
@@ -390,19 +420,20 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     }
 
     if (ryu_debug) {
-        std.debug.warn("DIGITS={}\n", output);
+        std.debug.warn("DIGITS={}\n", v.mantissa);
         std.debug.warn("OLEN={}\n", olength);
-        std.debug.warn("EXP={}\n", exp + olength);
+        std.debug.warn("EXP={}\n", v.exponent + olength);
     }
 
-    // Print the decimal digits.
-    // The following code is equivalent to:
-    // for (uint32_t i = 0; i < olength - 1; ++i) {
-    //   const uint32_t c = output % 10; output /= 10;
-    //   result[index + olength - i] = (char) ('0' + c);
+    // Print the decimal digits. The following code is equivalent to:
+    //
+    // var i: usize = 0;
+    // while (i < olength - 1) : (i += 1) {
+    //     const c = output % 10;
+    //     output /= 10;
+    //     result[index + olength - i] = @intCast(u8, '0' + c);
     // }
-    // result[index] = '0' + output % 10;
-
+    // result[index] = @intCast(u8, '0' + output % 10);
     var i: usize = 0;
     // We prefer 32-bit operations, even on 64-bit platforms.
     // We have at most 17 digits, and 32-bit unsigned int can store 9. We cut off
@@ -464,39 +495,31 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     result[index] = 'E';
     index += 1;
 
-    exp += @intCast(i32, olength);
+    var exp = v.exponent + @intCast(i32, olength);
     if (exp < 0) {
         result[index] = '-';
         index += 1;
         exp = -exp;
     }
 
-    if (exp >= 100) {
-        const c = @rem(exp, 10);
-        const offset2 = @intCast(usize, 2 * @divTrunc(exp, 10));
+    const expu = @intCast(usize, exp);
+
+    if (expu >= 100) {
+        const c = @rem(expu, 10);
+        const offset2 = @intCast(usize, 2 * @divTrunc(expu, 10));
         std.mem.copy(u8, result[index..], DIGIT_TABLE[offset2 .. offset2 + 2]);
         result[index + 2] = @intCast(u8, '0' + c);
         index += 3;
-    } else if (exp >= 10) {
-        const offset2 = @intCast(usize, 2 * exp);
+    } else if (expu >= 10) {
+        const offset2 = @intCast(usize, 2 * expu);
         std.mem.copy(u8, result[index..], DIGIT_TABLE[offset2 .. offset2 + 2]);
         index += 2;
     } else {
-        result[index] = @intCast(u8, '0' + exp);
+        result[index] = @intCast(u8, '0' + expu);
         index += 1;
     }
 
     return index;
-}
-
-fn d2s_buffered(f: f64, result: []u8) []u8 {
-    const index = d2s_buffered_n(f, result);
-    return result[0..index];
-}
-
-fn d2s(allocator: *std.mem.Allocator, f: f64) ![]u8 {
-    var result = try allocator.alloc(u8, 25);
-    return d2s_buffered(f, result);
 }
 
 const assert = std.debug.assert;
