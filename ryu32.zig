@@ -108,12 +108,12 @@ const Decimal32 = struct {
     exponent: i32,
 };
 
-fn f2s(allocator: *std.mem.Allocator, f: f32) ![]u8 {
+fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
     var result = try allocator.alloc(u8, 16);
-    return f2s_buffered(f, result);
+    return ryu32(f, result);
 }
 
-fn f2s_buffered(f: f32, result: []u8) []u8 {
+fn ryu32(f: f32, result: []u8) []u8 {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
     // This only works on little-endian architectures.
     const bits = @bitCast(u32, f);
@@ -379,79 +379,79 @@ const assert = std.debug.assert;
 const al = std.debug.global_allocator;
 const eql = std.mem.eql;
 
-test "f2s basic" {
-    assert(eql(u8, "0E0", try f2s(al, 0.0)));
-    assert(eql(u8, "-0E0", try f2s(al, -f32(0.0))));
-    assert(eql(u8, "1E0", try f2s(al, 1.0)));
-    assert(eql(u8, "-1E0", try f2s(al, -1.0)));
-    assert(eql(u8, "nan", try f2s(al, std.math.nan(f32))));
-    assert(eql(u8, "inf", try f2s(al, std.math.inf(f32))));
-    assert(eql(u8, "-inf", try f2s(al, -std.math.inf(f32))));
+test "ryu32 basic" {
+    assert(eql(u8, "0E0", try ryuAlloc32(al, 0.0)));
+    assert(eql(u8, "-0E0", try ryuAlloc32(al, -f32(0.0))));
+    assert(eql(u8, "1E0", try ryuAlloc32(al, 1.0)));
+    assert(eql(u8, "-1E0", try ryuAlloc32(al, -1.0)));
+    assert(eql(u8, "nan", try ryuAlloc32(al, std.math.nan(f32))));
+    assert(eql(u8, "inf", try ryuAlloc32(al, std.math.inf(f32))));
+    assert(eql(u8, "-inf", try ryuAlloc32(al, -std.math.inf(f32))));
 }
 
-test "f2s switch to subnormal" {
-    assert(eql(u8, "1.1754944E-38", try f2s(al, 1.1754944e-38)));
+test "ryu32 switch to subnormal" {
+    assert(eql(u8, "1.1754944E-38", try ryuAlloc32(al, 1.1754944e-38)));
 }
 
-test "f2s min and max" {
-    assert(eql(u8, "3.4028235E38", try f2s(al, @bitCast(f32, u32(0x7f7fffff)))));
-    assert(eql(u8, "1E-45", try f2s(al, @bitCast(f32, u32(1)))));
+test "ryu32 min and max" {
+    assert(eql(u8, "3.4028235E38", try ryuAlloc32(al, @bitCast(f32, u32(0x7f7fffff)))));
+    assert(eql(u8, "1E-45", try ryuAlloc32(al, @bitCast(f32, u32(1)))));
 }
 
 // Check that we return the exact boundary if it is the shortest
 // representation, but only if the original floating point number is even.
-test "f2s boundary round even" {
-    assert(eql(u8, "3.355445E7", try f2s(al, 3.355445e7)));
-    assert(eql(u8, "9E9", try f2s(al, 8.999999e9)));
-    assert(eql(u8, "3.436672E10", try f2s(al, 3.4366717e10)));
+test "ryu32 boundary round even" {
+    assert(eql(u8, "3.355445E7", try ryuAlloc32(al, 3.355445e7)));
+    assert(eql(u8, "9E9", try ryuAlloc32(al, 8.999999e9)));
+    assert(eql(u8, "3.436672E10", try ryuAlloc32(al, 3.4366717e10)));
 }
 
 // If the exact value is exactly halfway between two shortest representations,
 // then we round to even. It seems like this only makes a difference if the
 // last two digits are ...2|5 or ...7|5, and we cut off the 5.
-test "exact value round even" {
-    assert(eql(u8, "3.0540412E5", try f2s(al, 3.0540412E5)));
-    assert(eql(u8, "8.0990312E3", try f2s(al, 8.0990312E3)));
+test "ryu32 exact value round even" {
+    assert(eql(u8, "3.0540412E5", try ryuAlloc32(al, 3.0540412E5)));
+    assert(eql(u8, "8.0990312E3", try ryuAlloc32(al, 8.0990312E3)));
 }
 
-test "f2s lots of trailing zeros" {
+test "ryu32 lots of trailing zeros" {
     // Pattern for the first test: 00111001100000000000000000000000
-    assert(eql(u8, "2.4414062E-4", try f2s(al, 2.4414062E-4)));
-    assert(eql(u8, "2.4414062E-3", try f2s(al, 2.4414062E-3)));
-    assert(eql(u8, "4.3945312E-3", try f2s(al, 4.3945312E-3)));
-    assert(eql(u8, "6.3476562E-3", try f2s(al, 6.3476562E-3)));
+    assert(eql(u8, "2.4414062E-4", try ryuAlloc32(al, 2.4414062E-4)));
+    assert(eql(u8, "2.4414062E-3", try ryuAlloc32(al, 2.4414062E-3)));
+    assert(eql(u8, "4.3945312E-3", try ryuAlloc32(al, 4.3945312E-3)));
+    assert(eql(u8, "6.3476562E-3", try ryuAlloc32(al, 6.3476562E-3)));
 }
 
-test "f2s regression" {
-    assert(eql(u8, "4.7223665E21", try f2s(al, 4.7223665E21)));
-    assert(eql(u8, "8.388608E6", try f2s(al, 8388608.0)));
-    assert(eql(u8, "1.6777216E7", try f2s(al, 1.6777216E7)));
-    assert(eql(u8, "3.3554436E7", try f2s(al, 3.3554436E7)));
-    assert(eql(u8, "6.7131496E7", try f2s(al, 6.7131496E7)));
-    assert(eql(u8, "1.9310392E-38", try f2s(al, 1.9310392E-38)));
-    assert(eql(u8, "-2.47E-43", try f2s(al, -2.47E-43)));
-    assert(eql(u8, "1.993244E-38", try f2s(al, 1.993244E-38)));
-    assert(eql(u8, "4.1039004E3", try f2s(al, 4103.9003)));
-    assert(eql(u8, "5.3399997E9", try f2s(al, 5.3399997E9)));
-    assert(eql(u8, "6.0898E-39", try f2s(al, 6.0898E-39)));
-    assert(eql(u8, "1.0310042E-3", try f2s(al, 0.0010310042)));
-    assert(eql(u8, "2.882326E17", try f2s(al, 2.8823261E17)));
+test "ryu32 regression" {
+    assert(eql(u8, "4.7223665E21", try ryuAlloc32(al, 4.7223665E21)));
+    assert(eql(u8, "8.388608E6", try ryuAlloc32(al, 8388608.0)));
+    assert(eql(u8, "1.6777216E7", try ryuAlloc32(al, 1.6777216E7)));
+    assert(eql(u8, "3.3554436E7", try ryuAlloc32(al, 3.3554436E7)));
+    assert(eql(u8, "6.7131496E7", try ryuAlloc32(al, 6.7131496E7)));
+    assert(eql(u8, "1.9310392E-38", try ryuAlloc32(al, 1.9310392E-38)));
+    assert(eql(u8, "-2.47E-43", try ryuAlloc32(al, -2.47E-43)));
+    assert(eql(u8, "1.993244E-38", try ryuAlloc32(al, 1.993244E-38)));
+    assert(eql(u8, "4.1039004E3", try ryuAlloc32(al, 4103.9003)));
+    assert(eql(u8, "5.3399997E9", try ryuAlloc32(al, 5.3399997E9)));
+    assert(eql(u8, "6.0898E-39", try ryuAlloc32(al, 6.0898E-39)));
+    assert(eql(u8, "1.0310042E-3", try ryuAlloc32(al, 0.0010310042)));
+    assert(eql(u8, "2.882326E17", try ryuAlloc32(al, 2.8823261E17)));
     // MSVC rounds this up to the next higher floating point number
-    //assert(eql(u8, "7.038531E-26", try f2s(al, 7.038531E-26)));
-    assert(eql(u8, "7.038531E-26", try f2s(al, 7.0385309E-26)));
-    assert(eql(u8, "9.223404E17", try f2s(al, 9.2234038E17)));
-    assert(eql(u8, "6.710887E7", try f2s(al, 6.7108872E7)));
-    assert(eql(u8, "1E-44", try f2s(al, 1.0E-44)));
-    assert(eql(u8, "2.816025E14", try f2s(al, 2.816025E14)));
-    assert(eql(u8, "9.223372E18", try f2s(al, 9.223372E18)));
-    assert(eql(u8, "1.5846086E29", try f2s(al, 1.5846085E29)));
-    assert(eql(u8, "1.1811161E19", try f2s(al, 1.1811161E19)));
-    assert(eql(u8, "5.368709E18", try f2s(al, 5.368709E18)));
-    assert(eql(u8, "4.6143166E18", try f2s(al, 4.6143165E18)));
-    assert(eql(u8, "7.812537E-3", try f2s(al, 0.007812537)));
-    assert(eql(u8, "1E-45", try f2s(al, 1.4E-45)));
-    assert(eql(u8, "1.18697725E20", try f2s(al, 1.18697724E20)));
-    assert(eql(u8, "1.00014165E-36", try f2s(al, 1.00014165E-36)));
-    assert(eql(u8, "2E2", try f2s(al, 200.0)));
-    assert(eql(u8, "3.3554432E7", try f2s(al, 3.3554432E7)));
+    //assert(eql(u8, "7.038531E-26", try ryuAlloc32(al, 7.038531E-26)));
+    assert(eql(u8, "7.038531E-26", try ryuAlloc32(al, 7.0385309E-26)));
+    assert(eql(u8, "9.223404E17", try ryuAlloc32(al, 9.2234038E17)));
+    assert(eql(u8, "6.710887E7", try ryuAlloc32(al, 6.7108872E7)));
+    assert(eql(u8, "1E-44", try ryuAlloc32(al, 1.0E-44)));
+    assert(eql(u8, "2.816025E14", try ryuAlloc32(al, 2.816025E14)));
+    assert(eql(u8, "9.223372E18", try ryuAlloc32(al, 9.223372E18)));
+    assert(eql(u8, "1.5846086E29", try ryuAlloc32(al, 1.5846085E29)));
+    assert(eql(u8, "1.1811161E19", try ryuAlloc32(al, 1.1811161E19)));
+    assert(eql(u8, "5.368709E18", try ryuAlloc32(al, 5.368709E18)));
+    assert(eql(u8, "4.6143166E18", try ryuAlloc32(al, 4.6143165E18)));
+    assert(eql(u8, "7.812537E-3", try ryuAlloc32(al, 0.007812537)));
+    assert(eql(u8, "1E-45", try ryuAlloc32(al, 1.4E-45)));
+    assert(eql(u8, "1.18697725E20", try ryuAlloc32(al, 1.18697724E20)));
+    assert(eql(u8, "1.00014165E-36", try ryuAlloc32(al, 1.00014165E-36)));
+    assert(eql(u8, "2E2", try ryuAlloc32(al, 200.0)));
+    assert(eql(u8, "3.3554432E7", try ryuAlloc32(al, 3.3554432E7)));
 }

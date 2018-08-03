@@ -31,7 +31,7 @@ const ryu_optimize_size = false;
 
 use @import("common.zig");
 use @import("digit_table.zig");
-use @import("d2s_full_table.zig");
+use @import("ryu64_full_table.zig");
 
 const DOUBLE_POW5_INV_BITCOUNT = 122;
 const DOUBLE_POW5_BITCOUNT = 121;
@@ -176,12 +176,14 @@ const Decimal64 = struct {
     exponent: i32,
 };
 
-fn d2s(allocator: *std.mem.Allocator, f: f64) ![]u8 {
+pub fn ryuAlloc64(allocator: *std.mem.Allocator, f: f64) ![]u8 {
     var result = try allocator.alloc(u8, 25);
-    return d2s_buffered(f, result);
+    return ryu64(f, result);
 }
 
-fn d2s_buffered(f: f64, result: []u8) []u8 {
+// The maximum size of the output slice is 25 bytes. The caller must ensure the provided `result`
+// buffer is of sufficient size.
+pub fn ryu64(f: f64, result: []u8) []u8 {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
     // This only works on little-endian architectures.
     const bits = @bitCast(u64, f);
@@ -526,37 +528,37 @@ const assert = std.debug.assert;
 const al = std.debug.global_allocator;
 const eql = std.mem.eql;
 
-test "d2s basic" {
-    assert(eql(u8, "0E0", try d2s(al, 0.0)));
-    assert(eql(u8, "-0E0", try d2s(al, -f64(0.0))));
-    assert(eql(u8, "1E0", try d2s(al, 1.0)));
-    assert(eql(u8, "-1E0", try d2s(al, -1.0)));
-    assert(eql(u8, "nan", try d2s(al, std.math.nan(f64))));
-    assert(eql(u8, "inf", try d2s(al, std.math.inf(f64))));
-    assert(eql(u8, "-inf", try d2s(al, -std.math.inf(f64))));
+test "ryu64 basic" {
+    assert(eql(u8, "0E0", try ryuAlloc64(al, 0.0)));
+    assert(eql(u8, "-0E0", try ryuAlloc64(al, -f64(0.0))));
+    assert(eql(u8, "1E0", try ryuAlloc64(al, 1.0)));
+    assert(eql(u8, "-1E0", try ryuAlloc64(al, -1.0)));
+    assert(eql(u8, "nan", try ryuAlloc64(al, std.math.nan(f64))));
+    assert(eql(u8, "inf", try ryuAlloc64(al, std.math.inf(f64))));
+    assert(eql(u8, "-inf", try ryuAlloc64(al, -std.math.inf(f64))));
 }
 
-test "d2s switch to subnormal" {
-    assert(eql(u8, "2.2250738585072014E-308", try d2s(al, 2.2250738585072014E-308)));
+test "ryu64 switch to subnormal" {
+    assert(eql(u8, "2.2250738585072014E-308", try ryuAlloc64(al, 2.2250738585072014E-308)));
 }
 
-test "d2s min and max" {
-    assert(eql(u8, "1.7976931348623157E308", try d2s(al, @bitCast(f64, u64(0x7fefffffffffffff)))));
-    assert(eql(u8, "5E-324", try d2s(al, @bitCast(f64, u64(1)))));
+test "ryu64 min and max" {
+    assert(eql(u8, "1.7976931348623157E308", try ryuAlloc64(al, @bitCast(f64, u64(0x7fefffffffffffff)))));
+    assert(eql(u8, "5E-324", try ryuAlloc64(al, @bitCast(f64, u64(1)))));
 }
 
-test "d2s lots of trailing zeros" {
-    assert(eql(u8, "2.9802322387695312E-8", try d2s(al, 2.98023223876953125E-8)));
+test "ryu64 lots of trailing zeros" {
+    assert(eql(u8, "2.9802322387695312E-8", try ryuAlloc64(al, 2.98023223876953125E-8)));
 }
 
-test "d2s regression" {
-    assert(eql(u8, "-2.109808898695963E16", try d2s(al, -2.109808898695963E16)));
+test "ryu64 regression" {
+    assert(eql(u8, "-2.109808898695963E16", try ryuAlloc64(al, -2.109808898695963E16)));
     // TODO: Out of range?
-    //assert(eql(u8, "4.940656E-318", try d2s(al, 4.940656E-318)));
-    //assert(eql(u8, "1.18575755E-316", try d2s(al, 1.18575755E-316)));
-    //assert(eql(u8, "2.989102097996E-312", try d2s(al, 2.989102097996E-312)));
-    assert(eql(u8, "9.0608011534336E15", try d2s(al, 9.0608011534336E15)));
-    assert(eql(u8, "4.708356024711512E18", try d2s(al, 4.708356024711512E18)));
-    assert(eql(u8, "9.409340012568248E18", try d2s(al, 9.409340012568248E18)));
-    assert(eql(u8, "1.2345678E0", try d2s(al, 1.2345678)));
+    //assert(eql(u8, "4.940656E-318", try ryuAlloc64(al, 4.940656E-318)));
+    //assert(eql(u8, "1.18575755E-316", try ryuAlloc64(al, 1.18575755E-316)));
+    //assert(eql(u8, "2.989102097996E-312", try ryuAlloc64(al, 2.989102097996E-312)));
+    assert(eql(u8, "9.0608011534336E15", try ryuAlloc64(al, 9.0608011534336E15)));
+    assert(eql(u8, "4.708356024711512E18", try ryuAlloc64(al, 4.708356024711512E18)));
+    assert(eql(u8, "9.409340012568248E18", try ryuAlloc64(al, 9.409340012568248E18)));
+    assert(eql(u8, "1.2345678E0", try ryuAlloc64(al, 1.2345678)));
 }
