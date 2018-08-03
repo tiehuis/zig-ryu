@@ -384,9 +384,9 @@ test "ryu32 basic" {
     assert(eql(u8, "-0E0", try ryuAlloc32(al, -f32(0.0))));
     assert(eql(u8, "1E0", try ryuAlloc32(al, 1.0)));
     assert(eql(u8, "-1E0", try ryuAlloc32(al, -1.0)));
-    assert(eql(u8, "nan", try ryuAlloc32(al, std.math.nan(f32))));
-    assert(eql(u8, "inf", try ryuAlloc32(al, std.math.inf(f32))));
-    assert(eql(u8, "-inf", try ryuAlloc32(al, -std.math.inf(f32))));
+    assert(eql(u8, "NaN", try ryuAlloc32(al, std.math.nan(f32))));
+    assert(eql(u8, "Infinity", try ryuAlloc32(al, std.math.inf(f32))));
+    assert(eql(u8, "-Infinity", try ryuAlloc32(al, -std.math.inf(f32))));
 }
 
 test "ryu32 switch to subnormal" {

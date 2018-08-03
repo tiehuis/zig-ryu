@@ -69,7 +69,7 @@ pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
 
 pub inline fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
     if (mantissa) {
-        std.mem.copy(u8, result, "nan");
+        std.mem.copy(u8, result, "NaN");
         return 3;
     }
     if (sign) {
@@ -79,8 +79,8 @@ pub inline fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantiss
     const offset: usize = @boolToInt(sign);
 
     if (exponent) {
-        std.mem.copy(u8, result[offset..], "inf");
-        return offset + 3;
+        std.mem.copy(u8, result[offset..], "Infinity");
+        return offset + 8;
     }
     std.mem.copy(u8, result[offset..], "0E0");
     return offset + 3;

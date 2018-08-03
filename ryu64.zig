@@ -533,9 +533,9 @@ test "ryu64 basic" {
     assert(eql(u8, "-0E0", try ryuAlloc64(al, -f64(0.0))));
     assert(eql(u8, "1E0", try ryuAlloc64(al, 1.0)));
     assert(eql(u8, "-1E0", try ryuAlloc64(al, -1.0)));
-    assert(eql(u8, "nan", try ryuAlloc64(al, std.math.nan(f64))));
-    assert(eql(u8, "inf", try ryuAlloc64(al, std.math.inf(f64))));
-    assert(eql(u8, "-inf", try ryuAlloc64(al, -std.math.inf(f64))));
+    assert(eql(u8, "NaN", try ryuAlloc64(al, std.math.nan(f64))));
+    assert(eql(u8, "Infinity", try ryuAlloc64(al, std.math.inf(f64))));
+    assert(eql(u8, "-Infinity", try ryuAlloc64(al, -std.math.inf(f64))));
 }
 
 test "ryu64 switch to subnormal" {
