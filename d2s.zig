@@ -33,26 +33,8 @@ use @import("common.zig");
 use @import("digit_table.zig");
 use @import("d2s_full_table.zig");
 
-const DOUBLE_MANTISSA_BITS = 52;
-const DOUBLE_EXPONENT_BITS = 11;
-
 const DOUBLE_POW5_INV_BITCOUNT = 122;
 const DOUBLE_POW5_BITCOUNT = 121;
-
-inline fn pow5Factor(n: u64) i32 {
-    var value = n;
-    var count: i32 = 0;
-
-    while (value > 0) : ({
-        count += 1;
-        value = @divTrunc(value, 5);
-    }) {
-        if (@mod(value, 5) != 0) {
-            return count;
-        }
-    }
-    return 0;
-}
 
 // Following are for compact table lookup.
 
@@ -151,11 +133,6 @@ inline fn double_computeInvPow5(i: u32, result: []u64) void {
     result[1] = @intCast(u64, shiftedSum >> 64);
 }
 
-// Returns true if value is divisible by 5^p.
-inline fn multipleOfPowerOf5(value: u64, p: i32) bool {
-    return pow5Factor(value) >= p;
-}
-
 // Best case: use 128-bit type.
 inline fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
     const b0 = u128(m) * mul[0];
@@ -228,8 +205,8 @@ inline fn decimalLength(v: u64) u32 {
 
 fn d2s_buffered_n(f: f64, result: []u8) usize {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
-    const mantissaBits = DOUBLE_MANTISSA_BITS;
-    const exponentBits = DOUBLE_EXPONENT_BITS;
+    const mantissaBits = std.math.floatMantissaBits(f64);
+    const exponentBits = std.math.floatExponentBits(f64);
     const offset = (1 << (exponentBits - 1)) - 1;
 
     // This only works on little-endian architectures.
@@ -375,12 +352,7 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     if (vmIsTrailingZeros or vrIsTrailingZeros) {
         // General case, which happens rarely (<1%).
         while (vp / 10 > vm / 10) {
-            //#ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=23106
-            // The compiler does not realize that vm % 10 can be computed from vm / 10
-            // as vm - (vm / 10) * 10.
-            // vmIsTrailingZeros &= vm - (vm / 10) * 10 == 0;
             vmIsTrailingZeros = vmIsTrailingZeros and vm % 10 == 0;
-
             vrIsTrailingZeros = vrIsTrailingZeros and lastRemovedDigit == 0;
             lastRemovedDigit = @intCast(u8, vr % 10);
             vr /= 10;
@@ -470,10 +442,7 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
     // We prefer 32-bit operations, even on 64-bit platforms.
     // We have at most 17 digits, and 32-bit unsigned int can store 9. We cut off
     // 8 in the first iteration, so the remainder will fit into a 32-bit int.
-    if (olength > 8) {
-        // Expensive 64-bit division.
-        //#ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=38217
-        // uint32_t output2 = (uint32_t) (output - 100000000 * (output / 100000000));
+    if ((output >> 32) != 0) {
         var output2 = @truncate(u32, output % 100000000);
         output /= 100000000;
 
@@ -494,8 +463,6 @@ fn d2s_buffered_n(f: f64, result: []u8) usize {
 
     var output2 = @truncate(u32, output);
     while (output2 >= 10000) {
-        // #ifdef __clang__ // https://bugs.llvm.org/show_bug.cgi?id=38217
-        // const uint32_t c = (uint32_t) (output2 - 10000 * (output2 / 10000));
         const c = @truncate(u32, output2 % 10000);
         output2 /= 10000;
         const c0 = (c % 100) << 1;

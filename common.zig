@@ -16,6 +16,7 @@
 // KIND, either express or implied.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 // Returns e == 0 ? 1 : ceil(log_2(5^e)).
 pub inline fn pow5bits(e: i32) u32 {
@@ -41,6 +42,29 @@ pub inline fn log10Pow5(e: i32) i32 {
     std.debug.assert(e >= 0);
     std.debug.assert(e <= 2620);
     return @intCast(i32, (@intCast(u32, e) * 732923) >> 20);
+}
+
+inline fn pow5Factor(n: var) i32 {
+    var value = n;
+    var count: i32 = 0;
+
+    while (value > 0) : ({
+        count += 1;
+        value = @divTrunc(value, 5);
+    }) {
+        if (@mod(value, 5) != 0) {
+            return count;
+        }
+    }
+    return 0;
+}
+
+// Returns true if value is divisible by 5^p.
+pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
+    std.debug.assert(@typeId(@typeOf(value)) == builtin.TypeId.Int);
+    std.debug.assert(!@typeOf(value).is_signed);
+
+    return pow5Factor(value) >= p;
 }
 
 pub inline fn copy_special_str(result: []u8, sign: bool, exponent: bool, mantissa: bool) usize {
