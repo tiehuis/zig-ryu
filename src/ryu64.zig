@@ -451,10 +451,15 @@ fn decimalToBuffer(v: Decimal64, sign: bool, result: []u8) usize {
         const d0 = (d % 100) << 1;
         const d1 = (d / 100) << 1;
 
-        std.mem.copy(u8, result[index + olength - i - 1 ..], DIGIT_TABLE[c0 .. c0 + 2]);
-        std.mem.copy(u8, result[index + olength - i - 3 ..], DIGIT_TABLE[c1 .. c1 + 2]);
-        std.mem.copy(u8, result[index + olength - i - 5 ..], DIGIT_TABLE[d0 .. d0 + 2]);
-        std.mem.copy(u8, result[index + olength - i - 7 ..], DIGIT_TABLE[d1 .. d1 + 2]);
+        // TODO: See https://github.com/ziglang/zig/issues/1329
+        result[index + olength - i - 1 + 0] = DIGIT_TABLE[c0 + 0];
+        result[index + olength - i - 1 + 1] = DIGIT_TABLE[c0 + 1];
+        result[index + olength - i - 3 + 0] = DIGIT_TABLE[c1 + 0];
+        result[index + olength - i - 3 + 1] = DIGIT_TABLE[c1 + 1];
+        result[index + olength - i - 5 + 0] = DIGIT_TABLE[d0 + 0];
+        result[index + olength - i - 5 + 1] = DIGIT_TABLE[d0 + 1];
+        result[index + olength - i - 7 + 0] = DIGIT_TABLE[d1 + 0];
+        result[index + olength - i - 7 + 1] = DIGIT_TABLE[d1 + 1];
         i += 8;
     }
 
@@ -465,14 +470,18 @@ fn decimalToBuffer(v: Decimal64, sign: bool, result: []u8) usize {
         const c0 = (c % 100) << 1;
         const c1 = (c / 100) << 1;
 
-        std.mem.copy(u8, result[index + olength - i - 1 ..], DIGIT_TABLE[c0 .. c0 + 2]);
-        std.mem.copy(u8, result[index + olength - i - 3 ..], DIGIT_TABLE[c1 .. c1 + 2]);
+        result[index + olength - i - 1 + 0] = DIGIT_TABLE[c0 + 0];
+        result[index + olength - i - 1 + 1] = DIGIT_TABLE[c0 + 1];
+        result[index + olength - i - 3 + 0] = DIGIT_TABLE[c1 + 0];
+        result[index + olength - i - 3 + 1] = DIGIT_TABLE[c1 + 1];
         i += 4;
     }
     if (output2 >= 100) {
         const c = @truncate(u32, (output2 % 100) << 1);
         output2 /= 100;
-        std.mem.copy(u8, result[index + olength - i - 1 ..], DIGIT_TABLE[c .. c + 2]);
+
+        result[index + olength - i - 1 + 0] = DIGIT_TABLE[c + 0];
+        result[index + olength - i - 1 + 1] = DIGIT_TABLE[c + 1];
         i += 2;
     }
     if (output2 >= 10) {
@@ -508,12 +517,16 @@ fn decimalToBuffer(v: Decimal64, sign: bool, result: []u8) usize {
     if (expu >= 100) {
         const c = @rem(expu, 10);
         const offset2 = @intCast(usize, 2 * @divTrunc(expu, 10));
-        std.mem.copy(u8, result[index..], DIGIT_TABLE[offset2 .. offset2 + 2]);
+
+        result[index + 0] = DIGIT_TABLE[offset2 + 0];
+        result[index + 1] = DIGIT_TABLE[offset2 + 1];
         result[index + 2] = @intCast(u8, '0' + c);
         index += 3;
     } else if (expu >= 10) {
         const offset2 = @intCast(usize, 2 * expu);
-        std.mem.copy(u8, result[index..], DIGIT_TABLE[offset2 .. offset2 + 2]);
+
+        result[index + 0] = DIGIT_TABLE[offset2 + 0];
+        result[index + 1] = DIGIT_TABLE[offset2 + 1];
         index += 2;
     } else {
         result[index] = @intCast(u8, '0' + expu);
