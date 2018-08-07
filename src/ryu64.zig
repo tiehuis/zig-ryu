@@ -186,7 +186,6 @@ pub fn ryuAlloc64(allocator: *std.mem.Allocator, f: f64) ![]u8 {
 // buffer is of sufficient size.
 pub fn ryu64(f: f64, result: []u8) []u8 {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
-    // This only works on little-endian architectures.
     const bits = @bitCast(u64, f);
 
     // Decode bits into sign, mantissa, and exponent.
@@ -232,7 +231,7 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
-    const mm_shift = (m2 != (1 << mantissa_bits)) or (exponent <= 1);
+    const mm_shift = (mantissa != 0) or (exponent <= 1);
     // We would compute mp and mm like this:
     //  uint64_t mp = 4 * m2 + 2;
     //  uint64_t mm = mv - 1 - mm_shift;
@@ -266,19 +265,19 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
             std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
         }
         if (q <= 21) {
+            // This should use q <= 22, but I think 21 is also safe. Smaller values
+            // may still be safe, but it's more difficult to reason about them.
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5 == 0) {
                 vr_is_trailing_zeros = multipleOfPowerOf5(mv, q);
+            } else if (accept_bounds) {
+                // Same as min(e2 + (~mm & 1), pow5Factor(mm)) >= q
+                // <=> e2 + (~mm & 1) >= q && pow5Factor(mm) >= q
+                // <=> true && pow5Factor(mm) >= q, since e2 >= q.
+                vm_is_trailing_zeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
             } else {
-                if (accept_bounds) {
-                    // Same as min(e2 + (~mm & 1), pow5Factor(mm)) >= q
-                    // <=> e2 + (~mm & 1) >= q && pow5Factor(mm) >= q
-                    // <=> true && pow5Factor(mm) >= q, since e2 >= q.
-                    vm_is_trailing_zeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
-                } else {
-                    // Same as min(e2 + 1, pow5Factor(mp)) >= q.
-                    vp -= @boolToInt(multipleOfPowerOf5(mv + 2, q));
-                }
+                // Same as min(e2 + 1, pow5Factor(mp)) >= q.
+                vp -= @boolToInt(multipleOfPowerOf5(mv + 2, q));
             }
         }
     } else {
@@ -304,16 +303,19 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
         }
 
         if (q <= 1) {
-            vr_is_trailing_zeros = (~@truncate(u32, mv) & 1) >= @intCast(u32, q);
+            // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q trailing 0 bits.
+            // mv = 4 m2, so it always has at least two trailing 0 bits.
+            vr_is_trailing_zeros = true;
             if (accept_bounds) {
-                vm_is_trailing_zeros = (~@truncate(u32, mv - 1 - @boolToInt(mm_shift)) & 1) >= @intCast(u32, q);
+                // mm = mv - 1 - mmShift, so it has 1 trailing 0 bit iff mmShift == 1.
+                vm_is_trailing_zeros = mm_shift;
             } else {
                 vp -= 1;
             }
         } else if (q < 63) { // TODO(ulfjack): Use a tighter bound here.
             // We need to compute min(ntz(mv), pow5Factor(mv) - e2) >= q-1
             // <=> ntz(mv) >= q-1  &&  pow5Factor(mv) - e2 >= q-1
-            // <=> ntz(mv) >= q-1
+            // <=> ntz(mv) >= q-1    (e2 is negative and -e2 >= q)
             // <=> (mv & ((1 << (q-1)) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
             vr_is_trailing_zeros = (mv & ((u64(1) << @intCast(u6, q - 1)) - 1)) == 0;
@@ -370,7 +372,7 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
         }
 
         if (vr_is_trailing_zeros and (last_removed_digit == 5) and (vr % 2 == 0)) {
-            // Round down not up if the number ends in X50000.
+            // Round even if the exact numbers is .....50..0.
             last_removed_digit = 4;
         }
         // We need to take vr+1 if vr is outside bounds or we need to round up.
@@ -561,6 +563,15 @@ test "ryu64 min and max" {
 
 test "ryu64 lots of trailing zeros" {
     assert(eql(u8, "2.9802322387695312E-8", try ryuAlloc64(al, 2.98023223876953125E-8)));
+}
+
+test "ryu64 looks like pow5" {
+    // These numbers have a mantissa that is a multiple of the largest power of 5 that fits,
+    // and an exponent that causes the computation for q to result in 22, which is a corner
+    // case for Ryu.
+    assert(eql(u8, "5.764607523034235E39", try ryuAlloc64(al, @bitCast(f64, u64(0x4830F0CF064DD592)))));
+    assert(eql(u8, "1.152921504606847E40", try ryuAlloc64(al, @bitCast(f64, u64(0x4840F0CF064DD592)))));
+    assert(eql(u8, "2.305843009213694E40", try ryuAlloc64(al, @bitCast(f64, u64(0x4850F0CF064DD592)))));
 }
 
 test "ryu64 regression" {

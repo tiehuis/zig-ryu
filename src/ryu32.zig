@@ -111,7 +111,6 @@ pub fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
 
 pub fn ryu32(f: f32, result: []u8) []u8 {
     // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
-    // This only works on little-endian architectures.
     const bits = @bitCast(u32, f);
 
     // Decode bits into sign, mantissa, and exponent.
@@ -157,7 +156,9 @@ fn floatToDecimal(mantissa: u32, exponent: u32) Decimal32 {
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     const mp = 4 * m2 + 2;
-    const mm = 4 * m2 - (if ((m2 != (1 << mantissa_bits)) or (exponent <= 1)) u32(2) else 1);
+    // Implicit bool -> int conversion. True is 1, false is 0.
+    const mm_shift = (mantissa != 0) or (exponent <= 1);
+    const mm = 4 * m2 - 1 - @boolToInt(mm_shift);
 
     // Step 3: Convert to a decimal power base using 64-bit arithmetic.
     var vr: u32 = undefined;
@@ -190,15 +191,14 @@ fn floatToDecimal(mantissa: u32, exponent: u32) Decimal32 {
             last_removed_digit = @intCast(u8, (mulPow5InvDivPow2(mv, @intCast(u32, q - 1), -e2 + @intCast(i32, q) - 1 + @intCast(i32, l)) % 10));
         }
         if (q <= 9) {
+            // The largest power of 5 that fits in 24 bits is 5^10, but q<=9 seems to be safe as well.
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5 == 0) {
                 vr_is_trailing_zeros = multipleOfPowerOf5(mv, q);
+            } else if (accept_bounds) {
+                vm_is_trailing_zeros = multipleOfPowerOf5(mm, q);
             } else {
-                if (accept_bounds) {
-                    vm_is_trailing_zeros = multipleOfPowerOf5(mm, q);
-                } else {
-                    vp -= @boolToInt(multipleOfPowerOf5(mp, q));
-                }
+                vp -= @boolToInt(multipleOfPowerOf5(mp, q));
             }
         }
     } else {
@@ -222,10 +222,14 @@ fn floatToDecimal(mantissa: u32, exponent: u32) Decimal32 {
             last_removed_digit = @intCast(u8, mulPow5DivPow2(mv, @intCast(u32, i + 1), j) % 10);
         }
         if (q <= 1) {
-            vr_is_trailing_zeros = (~mv & 1) >= @intCast(u32, q);
+            // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q trailing 0 bits.
+            // mv = 4 * m2, so it always has at least two trailing 0 bits.
+            vr_is_trailing_zeros = true;
             if (accept_bounds) {
-                vm_is_trailing_zeros = (~mm & 1) >= @intCast(u32, q);
+                // mm = mv - 1 - mmShift, so it has 1 trailing 0 bit iff mmShift == 1.
+                vm_is_trailing_zeros = mm_shift;
             } else {
+                // mp = mv + 2, so it always has at least one trailing 0 bit.
                 vp -= 1;
             }
         } else if (q < 31) { // TODO(ulfjack): Use a tighter bound here.
@@ -265,7 +269,7 @@ fn floatToDecimal(mantissa: u32, exponent: u32) Decimal32 {
             }
         }
         if (vr_is_trailing_zeros and (last_removed_digit == 5) and (vr % 2 == 0)) {
-            // Round down not up if the number ends in X50000.
+            // Round even if the exact number is .....50..0.
             last_removed_digit = 4;
         }
         // We need to take vr+1 if vr is outside bounds or we need to round up.
@@ -417,6 +421,15 @@ test "ryu32 lots of trailing zeros" {
     assert(eql(u8, "2.4414062E-3", try ryuAlloc32(al, 2.4414062E-3)));
     assert(eql(u8, "4.3945312E-3", try ryuAlloc32(al, 4.3945312E-3)));
     assert(eql(u8, "6.3476562E-3", try ryuAlloc32(al, 6.3476562E-3)));
+}
+
+test "ryu32 looks like pow5" {
+    // These numbers have a mantissa that is the largest power of 5 that fits,
+    // and an exponent that causes the computation for q to result in 10, which is a corner
+    // case for Ryu.
+    assert(eql(u8, "6.7108864E17", try ryuAlloc32(al, @bitCast(f32, u32(0x5D1502F9)))));
+    assert(eql(u8, "1.3421773E18", try ryuAlloc32(al, @bitCast(f32, u32(0x5D9502F9)))));
+    assert(eql(u8, "2.6843546E18", try ryuAlloc32(al, @bitCast(f32, u32(0x5E1502F9)))));
 }
 
 test "ryu32 regression" {
