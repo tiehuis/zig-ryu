@@ -388,9 +388,22 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
         output = vr +
             @boolToInt((vr == vm and (!accept_bounds or !vm_is_trailing_zeros)) or (last_removed_digit >= 5));
     } else {
-        // Specialized for the common case (>99%).
+        // Specialized for the common case (~99.3%). Percentags below are relative to this.
+        var round_up = false;
+        if (vp / 100 > vm / 100) { // Optimization: remove two digits at a time (~86.2%)
+            round_up = vr % 100 >= 50;
+            vr /= 100;
+            vp /= 100;
+            vm /= 100;
+            removed += 2;
+        }
+
+        // Loop iterations below (approximately), without optimization above:
+        // 0: 0.03%, 1: 13.8%, 2: 70.6%, 3: 14.0%, 4: 1.40%, 5: 0.14%, 6+: 0.02%
+        // Loop iterations below (approximately), with optimization above:
+        // 0: 70.6%, 1: 27.8%, 2: 1.40%, 3: 0.14%, 4+: 0.02%
         while (vp / 10 > vm / 10) {
-            last_removed_digit = @intCast(u8, vr % 10);
+            round_up = vr % 10 >= 5;
             vr /= 10;
             vp /= 10;
             vm /= 10;
@@ -398,12 +411,12 @@ fn floatToDecimal(mantissa: u64, exponent: u64) Decimal64 {
         }
 
         if (ryu_debug) {
-            std.debug.warn("{} {}\n", vr, last_removed_digit);
+            std.debug.warn("{} {}\n", vr, round_up);
             std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
         }
 
         // We need to take vr+1 if vr is outside bounds or we need to round up.
-        output = vr + @boolToInt((vr == vm) or (last_removed_digit >= 5));
+        output = vr + @boolToInt(vr == vm or round_up);
     }
 
     var exp = e10 + @intCast(i32, removed) - 1;
