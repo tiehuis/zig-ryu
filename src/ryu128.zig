@@ -47,6 +47,21 @@ const Decimal128 = struct {
     exponent: i32,
 };
 
+pub fn ryuAlloc16(allocator: *std.mem.Allocator, f: f16) ![]u8 {
+    var result = try allocator.alloc(u8, 16);
+    return ryu16(f, result);
+}
+
+pub fn ryu16(f: f16, result: []u8) []u8 {
+    const mantissa_bits = std.math.floatMantissaBits(f16);
+    const exponent_bits = std.math.floatExponentBits(f16);
+
+    const bits = @bitCast(u16, f);
+    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
+    const index = decimalToBuffer(v, result);
+    return result[0..index];
+}
+
 pub fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
     var result = try allocator.alloc(u8, 16);
     return ryu32(f, result);
