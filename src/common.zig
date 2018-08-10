@@ -19,7 +19,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // Returns e == 0 ? 1 : ceil(log_2(5^e)).
-pub inline fn pow5Bits(e: i32) u32 {
+pub fn pow5Bits(e: i32) u32 {
     // This approximation works up to the point that the multiplication overflows at e = 3529.
     // If the multiplication were done in 64 bits, it would fail at 5^4004 which is just greater
     // than 2^9297.
@@ -29,7 +29,7 @@ pub inline fn pow5Bits(e: i32) u32 {
 }
 
 // Returns floor(log_10(2^e)).
-pub inline fn log10Pow2(e: i32) i32 {
+pub fn log10Pow2(e: i32) i32 {
     // The first value this approximation fails for is 2^1651 which is just greater than 10^297.
     std.debug.assert(e >= 0);
     std.debug.assert(e <= 1650);
@@ -37,7 +37,7 @@ pub inline fn log10Pow2(e: i32) i32 {
 }
 
 // Returns floor(log_10(5^e)).
-pub inline fn log10Pow5(e: i32) i32 {
+pub fn log10Pow5(e: i32) i32 {
     // The first value this approximation fails for is 5^2621 which is just greater than 10^1832.
     std.debug.assert(e >= 0);
     std.debug.assert(e <= 2620);
@@ -60,7 +60,7 @@ fn pow5Factor(n: var) i32 {
 }
 
 // Returns true if value is divisible by 5^p.
-pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
+pub fn multipleOfPowerOf5(value: var, p: i32) bool {
     std.debug.assert(@typeId(@typeOf(value)) == builtin.TypeId.Int);
     std.debug.assert(!@typeOf(value).is_signed);
 

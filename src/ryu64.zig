@@ -29,9 +29,18 @@ const std = @import("std");
 const ryu_debug = false;
 const ryu_optimize_size = false;
 
-use @import("common.zig");
-use @import("digit_table.zig");
-use @import("ryu64_full_table.zig");
+const common = @import("common.zig");
+
+const log10Pow2 = common.log10Pow2;
+const pow5Bits = common.pow5Bits;
+const multipleOfPowerOf5 = common.multipleOfPowerOf5;
+const log10Pow5 = common.log10Pow5;
+
+const DIGIT_TABLE = @import("digit_table.zig").DIGIT_TABLE;
+
+const ryu64_full_table = @import("ryu64_full_table.zig");
+const DOUBLE_POW5_SPLIT = ryu64_full_table.DOUBLE_POW5_SPLIT;
+const DOUBLE_POW5_INV_SPLIT = ryu64_full_table.DOUBLE_POW5_INV_SPLIT;
 
 const DOUBLE_POW5_INV_BITCOUNT = 122;
 const DOUBLE_POW5_BITCOUNT = 121;
@@ -195,7 +204,7 @@ pub fn ryu64(f: f64, result: []u8) []u8 {
 
     // Case distinction; exit early for the easy cases.
     if (exponent == ((1 << exponent_bits) - 1) or (exponent == 0 and mantissa == 0)) {
-        const index = copySpecialString(result, sign, exponent != 0, mantissa != 0);
+        const index = common.copySpecialString(result, sign, exponent != 0, mantissa != 0);
         return result[0..index];
     }
 
