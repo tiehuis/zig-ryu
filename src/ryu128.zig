@@ -17,29 +17,10 @@
 
 const std = @import("std");
 
-const ryu_debug = false;
-const ryu_optimize_size = false;
-
 const common = @import("common.zig");
-
-const ryu128_table = @import("ryu128_table.zig");
-
-const log10Pow2 = ryu128_table.log10Pow2;
-const pow5Bits = ryu128_table.pow5Bits;
-const multipleOfPowerOf5 = ryu128_table.multipleOfPowerOf5;
-const log10Pow5 = ryu128_table.log10Pow5;
-
-const computeInvPow5 = ryu128_table.computeInvPow5;
-const computePow5 = ryu128_table.computePow5;
-const decimalLength = ryu128_table.decimalLength;
-
-const mulShift = ryu128_table.mulShift;
-
-const F128_POW5_INV_BITCOUNT = ryu128_table.F128_POW5_INV_BITCOUNT;
-const F128_POW5_BITCOUNT = ryu128_table.F128_POW5_BITCOUNT;
-const POW5_TABLE_SIZE = ryu128_table.POW5_TABLE_SIZE;
-
-const DIGIT_TABLE = @import("digit_table.zig").DIGIT_TABLE;
+const table = @import("ryu128_table.zig");
+const helper = @import("ryu128_helper.zig");
+const DIGIT_TABLE = common.DIGIT_TABLE;
 
 const Decimal128 = struct {
     sign: bool,
@@ -47,59 +28,10 @@ const Decimal128 = struct {
     exponent: i32,
 };
 
-pub fn ryuAlloc16(allocator: *std.mem.Allocator, f: f16) ![]u8 {
-    var result = try allocator.alloc(u8, 16);
-    return ryu16(f, result);
-}
-
-pub fn ryu16(f: f16, result: []u8) []u8 {
-    const mantissa_bits = std.math.floatMantissaBits(f16);
-    const exponent_bits = std.math.floatExponentBits(f16);
-
-    const bits = @bitCast(u16, f);
-    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
-    const index = decimalToBuffer(v, result);
-    return result[0..index];
-}
-
-pub fn ryuAlloc32(allocator: *std.mem.Allocator, f: f32) ![]u8 {
-    var result = try allocator.alloc(u8, 16);
-    return ryu32(f, result);
-}
-
-pub fn ryu32(f: f32, result: []u8) []u8 {
-    const mantissa_bits = std.math.floatMantissaBits(f32);
-    const exponent_bits = std.math.floatExponentBits(f32);
-
-    const bits = @bitCast(u32, f);
-    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
-    const index = decimalToBuffer(v, result);
-    return result[0..index];
-}
-
-pub fn ryuAlloc64(allocator: *std.mem.Allocator, f: f64) ![]u8 {
-    var result = try allocator.alloc(u8, 25);
-    return ryu64(f, result);
-}
-
-pub fn ryu64(f: f64, result: []u8) []u8 {
-    const mantissa_bits = std.math.floatMantissaBits(f64);
-    const exponent_bits = std.math.floatExponentBits(f64);
-
-    const bits = @bitCast(u64, f);
-    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
-    const index = decimalToBuffer(v, result);
-    return result[0..index];
-}
-
-pub fn ryuAlloc80(allocator: *std.mem.Allocator, f: c_longdouble) ![]u8 {
-    // TODO: This bound can be reduced
-    var result = try allocator.alloc(u8, 55);
-    return ryu80(f, result);
-}
-
 pub fn ryu80(f: c_longdouble, result: []u8) []u8 {
     std.debug.assert(c_longdouble.bit_count == 80);
+    // TODO: This bound can be reduced
+    std.debug.assert(result.len >= 53);
 
     const mantissa_bits = std.math.floatMantissaBits(c_longdouble);
     const exponent_bits = std.math.floatExponentBits(c_longdouble);
@@ -110,12 +42,9 @@ pub fn ryu80(f: c_longdouble, result: []u8) []u8 {
     return result[0..index];
 }
 
-pub fn ryuAlloc128(allocator: *std.mem.Allocator, f: f128) ![]u8 {
-    var result = try allocator.alloc(u8, 53);
-    return ryu128(f, result);
-}
-
 pub fn ryu128(f: f128, result: []u8) []u8 {
+    std.debug.assert(result.len >= 53);
+
     const mantissa_bits = std.math.floatMantissaBits(f128);
     const exponent_bits = std.math.floatExponentBits(f128);
 
@@ -127,10 +56,6 @@ pub fn ryu128(f: f128, result: []u8) []u8 {
 
 // TODO: Don't accept values as comptime, specialization is likely too costly for code size.
 fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exponent_bits: comptime_int, comptime explicit_leading_bit: bool) Decimal128 {
-    if (ryu_debug) {
-        std.debug.warn("IN={b}\n", bits);
-    }
-
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
     const mantissa = bits & ((1 << mantissa_bits) - 1);
@@ -177,10 +102,6 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
     const even = m2 & 1 == 0;
     const accept_bounds = even;
 
-    if (ryu_debug) {
-        std.debug.warn("-> {} * 2^{}\n", m2, e2 + 2);
-    }
-
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
@@ -197,57 +118,46 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
     if (e2 >= 0) {
         // I tried special-casing q == 0, but there was no effect on performance.
         // This expression is slightly faster than max(0, log10Pow2(e2) - 1).
-        const q = log10Pow2(e2) - @intCast(i32, @boolToInt(e2 > 3));
+        const q = helper.log10Pow2(e2) - @intCast(i32, @boolToInt(e2 > 3));
         e10 = q;
-        const k = F128_POW5_INV_BITCOUNT + pow5Bits(q) - 1;
+        const k = table.f128_pow5_inv_bitcount + helper.pow5Bits(q) - 1;
         const i = -e2 + @intCast(i32, q) + @intCast(i32, k);
 
         // No full table, always partial compute
         var pow5: [4]u64 = undefined;
-        computeInvPow5(@intCast(u32, q), pow5[0..]);
-        vr = mulShift(4 * m2, pow5[0..], i);
-        vp = mulShift(4 * m2 + 2, pow5[0..], i);
-        vm = mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, i);
-
-        if (ryu_debug) {
-            std.debug.warn("{} * 2^{} / 10^{}\n", mv, e2, q);
-            std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        }
+        table.computeInvPow5(@intCast(u32, q), pow5[0..]);
+        vr = helper.mulShift(4 * m2, pow5[0..], i);
+        vp = helper.mulShift(4 * m2 + 2, pow5[0..], i);
+        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, i);
 
         // floor(log_5(2^128)) = 55, this is very conservative
         if (q <= 55) {
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5 == 0) {
-                vr_is_trailing_zeros = multipleOfPowerOf5(mv, q - 1);
+                vr_is_trailing_zeros = helper.multipleOfPowerOf5(mv, q - 1);
             } else if (accept_bounds) {
                 // Same as min(e2 + (~mm & 1), pow5Factor(mm)) >= q
                 // <=> e2 + (~mm & 1) >= q && pow5Factor(mm) >= q
                 // <=> true && pow5Factor(mm) >= q, since e2 >= q.
-                vm_is_trailing_zeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
+                vm_is_trailing_zeros = helper.multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
             } else {
                 // Same as min(e2 + 1, pow5Factor(mp)) >= q.
-                vp -= @boolToInt(multipleOfPowerOf5(mv + 2, q));
+                vp -= @boolToInt(helper.multipleOfPowerOf5(mv + 2, q));
             }
         }
     } else {
         // This expression is slightly faster than max(0, log10Pow5(-e2) - 1).
-        const q = log10Pow5(-e2) - @intCast(i32, @boolToInt(-e2 > 1));
+        const q = helper.log10Pow5(-e2) - @intCast(i32, @boolToInt(-e2 > 1));
         e10 = q + e2;
         const i = -e2 - q;
-        const k = @intCast(i32, pow5Bits(i)) - F128_POW5_BITCOUNT;
+        const k = @intCast(i32, helper.pow5Bits(i)) - table.f128_pow5_bitcount;
         const j = q - k;
 
         var pow5: [4]u64 = undefined;
-        computePow5(@intCast(u32, i), pow5[0..]);
-        vr = mulShift(4 * m2, pow5[0..], j);
-        vp = mulShift(4 * m2 + 2, pow5[0..], j);
-        vm = mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, j);
-
-        if (ryu_debug) {
-            std.debug.warn("{} * 5^{} / 10^{}\n", mv, -e2, q);
-            std.debug.warn("{} {} {} {}\n", q, i, k, j);
-            std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        }
+        table.computePow5(@intCast(u32, i), pow5[0..]);
+        vr = helper.mulShift(4 * m2, pow5[0..], j);
+        vp = helper.mulShift(4 * m2 + 2, pow5[0..], j);
+        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, j);
 
         if (q <= 1) {
             // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q trailing 0 bits.
@@ -266,18 +176,7 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
             // <=> (mv & ((1 << (q-1)) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
             vr_is_trailing_zeros = (mv & ((u128(1) << @intCast(u7, q - 1)) - 1)) == 0;
-
-            if (ryu_debug) {
-                std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
-            }
         }
-    }
-
-    if (ryu_debug) {
-        std.debug.warn("e10={}\n", e10);
-        std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        std.debug.warn("vm is trailing zeros={}\n", vm_is_trailing_zeros);
-        std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
     }
 
     // Step 4: Find the shortest decimal representation in the interval of legal representations.
@@ -295,11 +194,6 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
         removed += 1;
     }
 
-    if (ryu_debug) {
-        std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        std.debug.warn("d-10={}\n", vm_is_trailing_zeros);
-    }
-
     if (vm_is_trailing_zeros) {
         while (vm % 10 == 0) {
             vr_is_trailing_zeros = vr_is_trailing_zeros and last_removed_digit == 0;
@@ -309,11 +203,6 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
             vm /= 10;
             removed += 1;
         }
-    }
-
-    if (ryu_debug) {
-        std.debug.warn("{} %d\n", vr, last_removed_digit);
-        std.debug.warn("vr is trailing zeros={}\n", vr_is_trailing_zeros);
     }
 
     if (vr_is_trailing_zeros and (last_removed_digit == 5) and (vr % 2 == 0)) {
@@ -326,12 +215,6 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
 
     var exp = e10 + @intCast(i32, removed);
 
-    if (ryu_debug) {
-        std.debug.warn("V+={}\nV ={}\nV-={}\n", vp, vr, vm);
-        std.debug.warn("O={}\n", output);
-        std.debug.warn("EXP={}\n", exp);
-    }
-
     return Decimal128{
         .sign = sign,
         .mantissa = output,
@@ -339,23 +222,9 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
     };
 }
 
-inline fn copySpecialString(result: []u8, d: Decimal128) usize {
-    if (d.mantissa != 0) {
-        std.mem.copy(u8, result, "NaN");
-        return 3;
-    }
-    if (d.sign) {
-        result[0] = '-';
-    }
-
-    const offset: usize = @boolToInt(d.sign);
-    std.mem.copy(u8, result[offset..], "Infinity");
-    return offset + 8;
-}
-
 fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     if (v.exponent == 0x7fffffff) {
-        return copySpecialString(result, v);
+        return common.copySpecialString(result, v);
     }
 
     // Step 5: Print the decimal representation.
@@ -366,13 +235,7 @@ fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     }
 
     var output = v.mantissa;
-    const olength = decimalLength(output);
-
-    if (ryu_debug) {
-        std.debug.warn("DIGITS={}\n", v.mantissa);
-        std.debug.warn("OLEN={}\n", olength);
-        std.debug.warn("EXP={}\n", v.exponent + olength);
-    }
+    const olength = helper.decimalLength(output);
 
     // Print the decimal digits.
     var i: usize = 0;
@@ -403,7 +266,7 @@ fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     }
 
     var expu = @intCast(usize, exp);
-    const elength = decimalLength(expu);
+    const elength = helper.decimalLength(expu);
 
     var j: usize = 0;
     while (j < elength) : (j += 1) {
@@ -416,9 +279,48 @@ fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     return index;
 }
 
-const assert = std.debug.assert;
-const al = std.debug.global_allocator;
-const eql = std.mem.eql;
+fn T32(expected: []const u8, input: f32) void {
+    var buffer: [53]u8 = undefined;
+    const converted = ryu32(input, buffer[0..]);
+    std.debug.assert(std.mem.eql(u8, expected, converted));
+}
+
+fn T64(expected: []const u8, input: f64) void {
+    var buffer: [53]u8 = undefined;
+    const converted = ryu64(input, buffer[0..]);
+    std.debug.assert(std.mem.eql(u8, expected, converted));
+}
+
+fn T80(expected: []const u8, input: c_longdouble) void {
+    var buffer: [53]u8 = undefined;
+    const converted = ryu80(input, buffer[0..]);
+    std.debug.assert(std.mem.eql(u8, expected, converted));
+}
+
+// These are only to test the backend. The public definitions of ryu32 and ryu64 use the 32-bit
+// and 64-bit backends respectively.
+fn ryu32(f: f32, result: []u8) []u8 {
+    std.debug.assert(result.len >= 16);
+    const mantissa_bits = std.math.floatMantissaBits(f32);
+    const exponent_bits = std.math.floatExponentBits(f32);
+
+    const bits = @bitCast(u32, f);
+    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
+    const index = decimalToBuffer(v, result);
+    return result[0..index];
+}
+
+fn ryu64(f: f64, result: []u8) []u8 {
+    std.debug.assert(result.len >= 25);
+
+    const mantissa_bits = std.math.floatMantissaBits(f64);
+    const exponent_bits = std.math.floatExponentBits(f64);
+
+    const bits = @bitCast(u64, f);
+    const v = floatToDecimal(bits, mantissa_bits, exponent_bits, false);
+    const index = decimalToBuffer(v, result);
+    return result[0..index];
+}
 
 test "ryu128 generic to char" {
     const d = Decimal128{
@@ -430,7 +332,7 @@ test "ryu128 generic to char" {
     var result: [53]u8 = undefined;
     const index = decimalToBuffer(d, result[0..]);
 
-    assert(eql(u8, "1.2345E2", result[0..index]));
+    std.debug.assert(std.mem.eql(u8, "1.2345E2", result[0..index]));
 }
 
 test "ryu128 generic to char long" {
@@ -443,118 +345,118 @@ test "ryu128 generic to char long" {
     var result: [53]u8 = undefined;
     const index = decimalToBuffer(d, result[0..]);
 
-    assert(eql(u8, "1.00000000000000000000000000000000000000E18", result[0..index]));
+    std.debug.assert(std.mem.eql(u8, "1.00000000000000000000000000000000000000E18", result[0..index]));
 }
 
 test "ryu128 generic (f32)" {
-    assert(eql(u8, "0E0", try ryuAlloc32(al, 0.0)));
-    assert(eql(u8, "-0E0", try ryuAlloc32(al, -f32(0.0))));
-    assert(eql(u8, "1E0", try ryuAlloc32(al, 1.0)));
-    assert(eql(u8, "-1E0", try ryuAlloc32(al, -1.0)));
-    assert(eql(u8, "NaN", try ryuAlloc32(al, std.math.nan(f32))));
-    assert(eql(u8, "Infinity", try ryuAlloc32(al, std.math.inf(f32))));
-    assert(eql(u8, "-Infinity", try ryuAlloc32(al, -std.math.inf(f32))));
-    assert(eql(u8, "1.1754944E-38", try ryuAlloc32(al, 1.1754944E-38)));
-    assert(eql(u8, "3.4028235E38", try ryuAlloc32(al, @bitCast(f32, u32(0x7f7fffff)))));
-    assert(eql(u8, "1E-45", try ryuAlloc32(al, @bitCast(f32, u32(1)))));
-    assert(eql(u8, "3.355445E7", try ryuAlloc32(al, 3.355445E7)));
-    assert(eql(u8, "9E9", try ryuAlloc32(al, 8.999999E9)));
-    assert(eql(u8, "3.436672E10", try ryuAlloc32(al, 3.4366717E10)));
-    assert(eql(u8, "3.0540412E5", try ryuAlloc32(al, 3.0540412E5)));
-    assert(eql(u8, "8.0990312E3", try ryuAlloc32(al, 8.0990312E3)));
+    T32("0E0", 0.0);
+    T32("-0E0", -f32(0.0));
+    T32("1E0", 1.0);
+    T32("-1E0", -1.0);
+    T32("NaN", std.math.nan(f32));
+    T32("Infinity", std.math.inf(f32));
+    T32("-Infinity", -std.math.inf(f32));
+    T32("1.1754944E-38", 1.1754944E-38);
+    T32("3.4028235E38", @bitCast(f32, u32(0x7f7fffff)));
+    T32("1E-45", @bitCast(f32, u32(1)));
+    T32("3.355445E7", 3.355445E7);
+    T32("9E9", 8.999999E9);
+    T32("3.436672E10", 3.4366717E10);
+    T32("3.0540412E5", 3.0540412E5);
+    T32("8.0990312E3", 8.0990312E3);
     // Pattern for the first test: 00111001100000000000000000000000
-    assert(eql(u8, "2.4414062E-4", try ryuAlloc32(al, 2.4414062E-4)));
-    assert(eql(u8, "2.4414062E-3", try ryuAlloc32(al, 2.4414062E-3)));
-    assert(eql(u8, "4.3945312E-3", try ryuAlloc32(al, 4.3945312E-3)));
-    assert(eql(u8, "6.3476562E-3", try ryuAlloc32(al, 6.3476562E-3)));
-    assert(eql(u8, "4.7223665E21", try ryuAlloc32(al, 4.7223665E21)));
-    assert(eql(u8, "8.388608E6", try ryuAlloc32(al, 8388608.0)));
-    assert(eql(u8, "1.6777216E7", try ryuAlloc32(al, 1.6777216E7)));
-    assert(eql(u8, "3.3554436E7", try ryuAlloc32(al, 3.3554436E7)));
-    assert(eql(u8, "6.7131496E7", try ryuAlloc32(al, 6.7131496E7)));
-    assert(eql(u8, "1.9310392E-38", try ryuAlloc32(al, 1.9310392E-38)));
-    assert(eql(u8, "-2.47E-43", try ryuAlloc32(al, -2.47E-43)));
-    assert(eql(u8, "1.993244E-38", try ryuAlloc32(al, 1.993244E-38)));
-    assert(eql(u8, "4.1039004E3", try ryuAlloc32(al, 4103.9003)));
-    assert(eql(u8, "5.3399997E9", try ryuAlloc32(al, 5.3399997E9)));
-    assert(eql(u8, "6.0898E-39", try ryuAlloc32(al, 6.0898E-39)));
-    assert(eql(u8, "1.0310042E-3", try ryuAlloc32(al, 0.0010310042)));
-    assert(eql(u8, "2.882326E17", try ryuAlloc32(al, 2.8823261E17)));
-    assert(eql(u8, "7.038531E-26", try ryuAlloc32(al, 7.0385309E-26)));
-    assert(eql(u8, "9.223404E17", try ryuAlloc32(al, 9.2234038E17)));
-    assert(eql(u8, "6.710887E7", try ryuAlloc32(al, 6.7108872E7)));
-    assert(eql(u8, "1E-44", try ryuAlloc32(al, 1.0E-44)));
-    assert(eql(u8, "2.816025E14", try ryuAlloc32(al, 2.816025E14)));
-    assert(eql(u8, "9.223372E18", try ryuAlloc32(al, 9.223372E18)));
-    assert(eql(u8, "1.5846086E29", try ryuAlloc32(al, 1.5846085E29)));
-    assert(eql(u8, "1.1811161E19", try ryuAlloc32(al, 1.1811161E19)));
-    assert(eql(u8, "5.368709E18", try ryuAlloc32(al, 5.368709E18)));
-    assert(eql(u8, "4.6143166E18", try ryuAlloc32(al, 4.6143165E18)));
-    assert(eql(u8, "7.812537E-3", try ryuAlloc32(al, 0.007812537)));
-    assert(eql(u8, "1E-45", try ryuAlloc32(al, 1.4E-45)));
-    assert(eql(u8, "1.18697725E20", try ryuAlloc32(al, 1.18697724E20)));
-    assert(eql(u8, "1.00014165E-36", try ryuAlloc32(al, 1.00014165E-36)));
-    assert(eql(u8, "2E2", try ryuAlloc32(al, 200.0)));
-    assert(eql(u8, "3.3554432E7", try ryuAlloc32(al, 3.3554432E7)));
-    assert(eql(u8, "1.2E0", try ryuAlloc32(al, 1.2)));
-    assert(eql(u8, "1.23E0", try ryuAlloc32(al, 1.23)));
-    assert(eql(u8, "1.234E0", try ryuAlloc32(al, 1.234)));
-    assert(eql(u8, "1.2345E0", try ryuAlloc32(al, 1.2345)));
-    assert(eql(u8, "1.23456E0", try ryuAlloc32(al, 1.23456)));
-    assert(eql(u8, "1.234567E0", try ryuAlloc32(al, 1.234567)));
-    assert(eql(u8, "1.2345678E0", try ryuAlloc32(al, 1.2345678)));
-    assert(eql(u8, "1.23456735E-36", try ryuAlloc32(al, 1.23456735E-36)));
+    T32("2.4414062E-4", 2.4414062E-4);
+    T32("2.4414062E-3", 2.4414062E-3);
+    T32("4.3945312E-3", 4.3945312E-3);
+    T32("6.3476562E-3", 6.3476562E-3);
+    T32("4.7223665E21", 4.7223665E21);
+    T32("8.388608E6", 8388608.0);
+    T32("1.6777216E7", 1.6777216E7);
+    T32("3.3554436E7", 3.3554436E7);
+    T32("6.7131496E7", 6.7131496E7);
+    T32("1.9310392E-38", 1.9310392E-38);
+    T32("-2.47E-43", -2.47E-43);
+    T32("1.993244E-38", 1.993244E-38);
+    T32("4.1039004E3", 4103.9003);
+    T32("5.3399997E9", 5.3399997E9);
+    T32("6.0898E-39", 6.0898E-39);
+    T32("1.0310042E-3", 0.0010310042);
+    T32("2.882326E17", 2.8823261E17);
+    T32("7.038531E-26", 7.0385309E-26);
+    T32("9.223404E17", 9.2234038E17);
+    T32("6.710887E7", 6.7108872E7);
+    T32("1E-44", 1.0E-44);
+    T32("2.816025E14", 2.816025E14);
+    T32("9.223372E18", 9.223372E18);
+    T32("1.5846086E29", 1.5846085E29);
+    T32("1.1811161E19", 1.1811161E19);
+    T32("5.368709E18", 5.368709E18);
+    T32("4.6143166E18", 4.6143165E18);
+    T32("7.812537E-3", 0.007812537);
+    T32("1E-45", 1.4E-45);
+    T32("1.18697725E20", 1.18697724E20);
+    T32("1.00014165E-36", 1.00014165E-36);
+    T32("2E2", 200.0);
+    T32("3.3554432E7", 3.3554432E7);
+    T32("1.2E0", 1.2);
+    T32("1.23E0", 1.23);
+    T32("1.234E0", 1.234);
+    T32("1.2345E0", 1.2345);
+    T32("1.23456E0", 1.23456);
+    T32("1.234567E0", 1.234567);
+    T32("1.2345678E0", 1.2345678);
+    T32("1.23456735E-36", 1.23456735E-36);
 }
 
 test "ryu128 generic (f64)" {
-    assert(eql(u8, "0E0", try ryuAlloc64(al, 0.0)));
-    assert(eql(u8, "-0E0", try ryuAlloc64(al, -f64(0.0))));
-    assert(eql(u8, "1E0", try ryuAlloc64(al, 1.0)));
-    assert(eql(u8, "-1E0", try ryuAlloc64(al, -1.0)));
-    assert(eql(u8, "NaN", try ryuAlloc64(al, std.math.nan(f64))));
-    assert(eql(u8, "Infinity", try ryuAlloc64(al, std.math.inf(f64))));
-    assert(eql(u8, "-Infinity", try ryuAlloc64(al, -std.math.inf(f64))));
-    assert(eql(u8, "2.2250738585072014E-308", try ryuAlloc64(al, 2.2250738585072014E-308)));
-    assert(eql(u8, "1.7976931348623157E308", try ryuAlloc64(al, @bitCast(f64, u64(0x7fefffffffffffff)))));
-    assert(eql(u8, "5E-324", try ryuAlloc64(al, @bitCast(f64, u64(1)))));
-    assert(eql(u8, "2.9802322387695312E-8", try ryuAlloc64(al, 2.98023223876953125E-8)));
-    assert(eql(u8, "-2.109808898695963E16", try ryuAlloc64(al, -2.109808898695963E16)));
+    T64("0E0", 0.0);
+    T64("-0E0", -f64(0.0));
+    T64("1E0", 1.0);
+    T64("-1E0", -1.0);
+    T64("NaN", std.math.nan(f64));
+    T64("Infinity", std.math.inf(f64));
+    T64("-Infinity", -std.math.inf(f64));
+    T64("2.2250738585072014E-308", 2.2250738585072014E-308);
+    T64("1.7976931348623157E308", @bitCast(f64, u64(0x7fefffffffffffff)));
+    T64("5E-324", @bitCast(f64, u64(1)));
+    T64("2.9802322387695312E-8", 2.98023223876953125E-8);
+    T64("-2.109808898695963E16", -2.109808898695963E16);
     // TODO: Literal out of range
-    //assert(eql(u8, "4.940656E-318", try ryuAlloc64(al, 4.940656E-318)));
-    //assert(eql(u8, "1.18575755E-316", try ryuAlloc64(al, 1.18575755E-316)));
-    //assert(eql(u8, "2.989102097996E-312", try ryuAlloc64(al, 2.989102097996E-312)));
-    assert(eql(u8, "9.0608011534336E15", try ryuAlloc64(al, 9.0608011534336E15)));
-    assert(eql(u8, "4.708356024711512E18", try ryuAlloc64(al, 4.708356024711512E18)));
-    assert(eql(u8, "9.409340012568248E18", try ryuAlloc64(al, 9.409340012568248E18)));
-    assert(eql(u8, "1.2345678E0", try ryuAlloc64(al, 1.2345678)));
-    assert(eql(u8, "5.764607523034235E39", try ryuAlloc64(al, @bitCast(f64, u64(0x4830F0CF064DD592)))));
-    assert(eql(u8, "1.152921504606847E40", try ryuAlloc64(al, @bitCast(f64, u64(0x4840F0CF064DD592)))));
-    assert(eql(u8, "2.305843009213694E40", try ryuAlloc64(al, @bitCast(f64, u64(0x4850F0CF064DD592)))));
+    //T64("4.940656E-318", 4.940656E-318);
+    //T64("1.18575755E-316", 1.18575755E-316);
+    //T64("2.989102097996E-312", 2.989102097996E-312);
+    T64("9.0608011534336E15", 9.0608011534336E15);
+    T64("4.708356024711512E18", 4.708356024711512E18);
+    T64("9.409340012568248E18", 9.409340012568248E18);
+    T64("1.2345678E0", 1.2345678);
+    T64("5.764607523034235E39", @bitCast(f64, u64(0x4830F0CF064DD592)));
+    T64("1.152921504606847E40", @bitCast(f64, u64(0x4840F0CF064DD592)));
+    T64("2.305843009213694E40", @bitCast(f64, u64(0x4850F0CF064DD592)));
 
-    assert(eql(u8, "1E0", try ryuAlloc64(al, 1))); // already tested in Basic
-    assert(eql(u8, "1.2E0", try ryuAlloc64(al, 1.2)));
-    assert(eql(u8, "1.23E0", try ryuAlloc64(al, 1.23)));
-    assert(eql(u8, "1.234E0", try ryuAlloc64(al, 1.234)));
-    assert(eql(u8, "1.2345E0", try ryuAlloc64(al, 1.2345)));
-    assert(eql(u8, "1.23456E0", try ryuAlloc64(al, 1.23456)));
-    assert(eql(u8, "1.234567E0", try ryuAlloc64(al, 1.234567)));
-    assert(eql(u8, "1.2345678E0", try ryuAlloc64(al, 1.2345678))); // already tested in Regression
-    assert(eql(u8, "1.23456789E0", try ryuAlloc64(al, 1.23456789)));
-    assert(eql(u8, "1.234567895E0", try ryuAlloc64(al, 1.234567895))); // 1.234567890 would be trimmed
-    assert(eql(u8, "1.2345678901E0", try ryuAlloc64(al, 1.2345678901)));
-    assert(eql(u8, "1.23456789012E0", try ryuAlloc64(al, 1.23456789012)));
-    assert(eql(u8, "1.234567890123E0", try ryuAlloc64(al, 1.234567890123)));
-    assert(eql(u8, "1.2345678901234E0", try ryuAlloc64(al, 1.2345678901234)));
-    assert(eql(u8, "1.23456789012345E0", try ryuAlloc64(al, 1.23456789012345)));
-    assert(eql(u8, "1.234567890123456E0", try ryuAlloc64(al, 1.234567890123456)));
-    assert(eql(u8, "1.2345678901234567E0", try ryuAlloc64(al, 1.2345678901234567)));
+    T64("1E0", 1); // already tested in Basic
+    T64("1.2E0", 1.2);
+    T64("1.23E0", 1.23);
+    T64("1.234E0", 1.234);
+    T64("1.2345E0", 1.2345);
+    T64("1.23456E0", 1.23456);
+    T64("1.234567E0", 1.234567);
+    T64("1.2345678E0", 1.2345678); // already tested in Regression
+    T64("1.23456789E0", 1.23456789);
+    T64("1.234567895E0", 1.234567895); // 1.234567890 would be trimmed
+    T64("1.2345678901E0", 1.2345678901);
+    T64("1.23456789012E0", 1.23456789012);
+    T64("1.234567890123E0", 1.234567890123);
+    T64("1.2345678901234E0", 1.2345678901234);
+    T64("1.23456789012345E0", 1.23456789012345);
+    T64("1.234567890123456E0", 1.234567890123456);
+    T64("1.2345678901234567E0", 1.2345678901234567);
 
     // Test 32-bit chunking
-    assert(eql(u8, "4.294967294E0", try ryuAlloc64(al, 4.294967294))); // 2^32 - 2
-    assert(eql(u8, "4.294967295E0", try ryuAlloc64(al, 4.294967295))); // 2^32 - 1
-    assert(eql(u8, "4.294967296E0", try ryuAlloc64(al, 4.294967296))); // 2^32
-    assert(eql(u8, "4.294967297E0", try ryuAlloc64(al, 4.294967297))); // 2^32 + 1
-    assert(eql(u8, "4.294967298E0", try ryuAlloc64(al, 4.294967298))); // 2^32 + 2
+    T64("4.294967294E0", 4.294967294); // 2^32 - 2
+    T64("4.294967295E0", 4.294967295); // 2^32 - 1
+    T64("4.294967296E0", 4.294967296); // 2^32
+    T64("4.294967297E0", 4.294967297); // 2^32 + 1
+    T64("4.294967298E0", 4.294967298); // 2^32 + 2
 }
 
 // TODO: unreachable: /home/me/src/zig/src/ir.cpp:eval_const_expr_implicit_cast:9320
@@ -564,23 +466,23 @@ test "ryu128 generic (f80/c_longdouble)" {
         return error.SkipZigTest;
     }
 
-    assert(eql(u8, "0E0", try ryuAlloc80(al, 0.0)));
-    assert(eql(u8, "-0E0", try ryuAlloc80(al, -c_longdouble(0.0))));
-    assert(eql(u8, "1E0", try ryuAlloc80(al, 1.0)));
-    assert(eql(u8, "-1E0", try ryuAlloc80(al, -1.0)));
-    assert(eql(u8, "NaN", try ryuAlloc80(al, std.math.nan(c_longdouble))));
-    assert(eql(u8, "Infinity", try ryuAlloc80(al, std.math.inf(c_longdouble))));
-    assert(eql(u8, "-Infinity", try ryuAlloc80(al, -std.math.inf(c_longdouble))));
+    T80("0E0", 0.0);
+    T80("-0E0", -c_longdouble(0.0));
+    T80("1E0", 1.0);
+    T80("-1E0", -1.0);
+    T80("NaN", std.math.nan(c_longdouble));
+    T80("Infinity", std.math.inf(c_longdouble));
+    T80("-Infinity", -std.math.inf(c_longdouble));
 
-    assert(eql(u8, "2.2250738585072014E-308", try ryuAlloc80(al, 2.2250738585072014E-308)));
-    assert(eql(u8, "2.98023223876953125E-8", try ryuAlloc80(al, 2.98023223876953125E-8)));
-    assert(eql(u8, "-2.109808898695963E16", try ryuAlloc80(al, -2.109808898695963E16)));
+    T80("2.2250738585072014E-308", 2.2250738585072014E-308);
+    T80("2.98023223876953125E-8", 2.98023223876953125E-8);
+    T80("-2.109808898695963E16", -2.109808898695963E16);
     // TODO: Literal out of range
-    //assert(eql(u8, "4.940656E-318", try ryuAlloc80(al, 4.940656E-318)));
-    //assert(eql(u8, "1.18575755E-316", try ryuAlloc80(al, 1.18575755E-316)));
-    //assert(eql(u8, "2.989102097996E-312", try ryuAlloc80(al, 2.989102097996E-312)));
-    assert(eql(u8, "9.0608011534336E15", try ryuAlloc80(al, 9.0608011534336E15)));
-    assert(eql(u8, "4.708356024711512E18", try ryuAlloc80(al, 4.708356024711512E18)));
-    assert(eql(u8, "9.409340012568248E18", try ryuAlloc80(al, 9.409340012568248E18)));
-    assert(eql(u8, "1.2345678E0", try ryuAlloc80(al, 1.2345678)));
+    //T80("4.940656E-318", 4.940656E-318);
+    //T80("1.18575755E-316", 1.18575755E-316);
+    //T80("2.989102097996E-312", 2.989102097996E-312);
+    T80("9.0608011534336E15", 9.0608011534336E15);
+    T80("4.708356024711512E18", 4.708356024711512E18);
+    T80("9.409340012568248E18", 9.409340012568248E18);
+    T80("1.2345678E0", 1.2345678);
 }

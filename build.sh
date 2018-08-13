@@ -12,8 +12,8 @@ cp double-conversion/libdouble-conversion.a ../../../../build
 cd ../../../..
 
 echo "building reference benchmark"
-g++ -O2 -Iryu ryu/ryu/*.c ryu/ryu/benchmark/benchmark.cc build/libdouble-conversion.a -o bench-reference
+g++ -std=c++11 -O2 -Iryu ryu/ryu/*.c ryu/ryu/benchmark/benchmark.cc build/libdouble-conversion.a -o bench-reference
 
 echo "building zig benchmark"
 zig build-obj src/ryu_c.zig --release-fast --output build/ryu.zig.o --output-h build/ryu.zig.h --cache-dir build
-g++ -O2 -Iryu build/ryu.zig.o ryu/ryu/benchmark/benchmark.cc build/libdouble-conversion.a -o bench-zig
+g++ -std=c++11 -O2 -Iryu build/ryu.zig.o ryu/ryu/benchmark/benchmark.cc build/libdouble-conversion.a -o bench-zig

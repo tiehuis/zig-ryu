@@ -16,17 +16,16 @@
 // KIND, either express or implied.
 
 const std = @import("std");
-const builtin = @import("builtin");
+const helper = @import("ryu128_helper.zig");
 
-pub const F128_POW5_INV_BITCOUNT = 249;
-pub const F128_POW5_BITCOUNT = 249;
-pub const POW5_TABLE_SIZE = 56;
+pub const f128_pow5_inv_bitcount = 249;
+pub const f128_pow5_bitcount = 249;
 
 // These tables are ~4.5 kByte total, compared to ~160 kByte for the full tables.
 
 // There's no way to define 128-bit constants in C, so we use little-endian
 // pairs of 64-bit constants.
-pub const GENERIC_POW5_TABLE = [][]const u64{
+const generic_pow5_table = [][]const u64{
     []const u64{ 1, 0 },
     []const u64{ 5, 0 },
     []const u64{ 25, 0 },
@@ -85,7 +84,7 @@ pub const GENERIC_POW5_TABLE = [][]const u64{
     []const u64{ 18443565265187884909, 15046327690525280101 },
 };
 
-pub const GENERIC_POW5_SPLIT = [][]const u64{
+const generic_pow5_split = [][]const u64{
     []const u64{ 0, 0, 0, 72057594037927936 },
     []const u64{ 0, 5206161169240293376, 4575641699882439235, 73468396926392969 },
     []const u64{ 3360510775605221349, 6983200512169538081, 4325643253124434363, 74906821675075173 },
@@ -179,7 +178,7 @@ pub const GENERIC_POW5_SPLIT = [][]const u64{
 
 // Unfortunately, the results are sometimes off by one or two. We use an additional
 // lookup table to store those cases and adjust the result.
-pub const POW5_ERRORS = []const u64{
+pub const pow5_errors = []const u64{
     0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x9555596400000000,
     0x65a6569525565555, 0x4415551445449655, 0x5105015504144541, 0x65a69969a6965964,
     0x5054955969959656, 0x5105154515554145, 0x4055511051591555, 0x5500514455550115,
@@ -221,7 +220,7 @@ pub const POW5_ERRORS = []const u64{
     0x5044044040000000, 0x1045040440010500, 0x0000400000040000, 0x0000000000000000,
 };
 
-pub const GENERIC_POW5_INV_SPLIT = [][]const u64{
+pub const generic_pow5_inv_split = [][]const u64{
     []const u64{ 0, 0, 0, 144115188075855872 },
     []const u64{ 1573859546583440065, 2691002611772552616, 6763753280790178510, 141347765182270746 },
     []const u64{ 12960290449513840412, 12345512957918226762, 18057899791198622765, 138633484706040742 },
@@ -313,7 +312,7 @@ pub const GENERIC_POW5_INV_SPLIT = [][]const u64{
     []const u64{ 7184427196661305643, 14332510582433188173, 14230167953789677901, 104649889046128358 },
 };
 
-pub const POW5_INV_ERRORS = []const u64{
+pub const pow5_inv_errors = []const u64{
     0x1144155514145504, 0x0000541555401141, 0x0000000000000000, 0x0154454000000000,
     0x4114105515544440, 0x0001001111500415, 0x4041411410011000, 0x5550114515155014,
     0x1404100041554551, 0x0515000450404410, 0x5054544401140004, 0x5155501005555105,
@@ -355,110 +354,11 @@ pub const POW5_INV_ERRORS = []const u64{
     0x0040000400105555, 0x0000000000000001,
 };
 
-// Returns e == 0 ? 1 : ceil(log_2(5^e)).
-pub fn pow5Bits(e: i32) u32 {
-    std.debug.assert(e >= 0);
-    std.debug.assert(e <= 1 << 15);
-    return @intCast(u32, ((@intCast(u64, e) * 163391164108059) >> 46) + 1);
-}
-
-// Returns floor(log_10(2^e)).
-pub fn log10Pow2(e: i32) i32 {
-    // The first value this approximation fails for is 2^1651 which is just greater than 10^297.
-    std.debug.assert(e >= 0);
-    std.debug.assert(e <= 1 << 15);
-    return @intCast(i32, (@intCast(u64, e) * 169464822037455) >> 49);
-}
-
-// Returns floor(log_10(5^e)).
-pub fn log10Pow5(e: i32) i32 {
-    // The first value this approximation fails for is 5^2621 which is just greater than 10^1832.
-    std.debug.assert(e >= 0);
-    std.debug.assert(e <= 1 << 15);
-    return @intCast(i32, (@intCast(u64, e) * 196742565691928) >> 48);
-}
-
-pub fn pow5Factor(n: var) i32 {
-    var value = n;
-    var count: i32 = 0;
-
-    while (value > 0) : ({
-        count += 1;
-        value = @divTrunc(value, 5);
-    }) {
-        if (@mod(value, 5) != 0) {
-            return count;
-        }
-    }
-    return 0;
-}
-
-// Returns true if value is divisible by 5^p.
-pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
-    std.debug.assert(@typeId(@typeOf(value)) == builtin.TypeId.Int);
-    std.debug.assert(!@typeOf(value).is_signed);
-
-    return pow5Factor(value) >= p;
-}
-
-pub fn mul_128_256_shift(a: []const u64, b: []const u64, shift: u32, corr: u32, result: []u64) void {
-    std.debug.assert(shift > 0);
-    std.debug.assert(shift < 256);
-
-    const b00 = u128(a[0]) * b[0]; // 0
-    const b01 = u128(a[0]) * b[1]; // 64
-    const b02 = u128(a[0]) * b[2]; // 128
-    const b03 = u128(a[0]) * b[3]; // 196
-    const b10 = u128(a[1]) * b[0]; // 64
-    const b11 = u128(a[1]) * b[1]; // 128
-    const b12 = u128(a[1]) * b[2]; // 196
-    const b13 = u128(a[1]) * b[3]; // 256
-
-    const s0 = b00; // 0   x
-    const s1 = b01 +% b10; // 64  x
-    const c1 = @boolToInt(s1 < b01); // 196 x
-    const s2 = b02 +% b11; // 128 x
-    const c2 = @boolToInt(s2 < b02); // 256 x
-    const s3 = b03 +% b12; // 196 x
-    const c3 = @boolToInt(s3 < b03); // 324 x
-
-    const p0 = s0 +% (u128(s1) << 64); // 0
-    const d0 = @boolToInt(p0 < b00); // 128
-    const q1 = s2 +% (s1 >> 64) +% (s3 << 64); // 128
-    const d1 = @boolToInt(q1 < s2); // 256
-    const p1 = q1 +% (u128(c1) << 64) +% d0; // 128
-    const d2 = @boolToInt(p1 < q1); // 256
-    const p2 = b13 +% (s3 >> 64) +% c2 +% (u128(c3) << 64) +% d1 +% d2; // 256
-
-    if (shift < 128) {
-        const r0 = corr + ((p0 >> @intCast(u7, shift)) | (p1 << @intCast(u7, 128 - shift)));
-        const r1 = ((p1 >> @intCast(u7, shift) | (p2 << @intCast(u7, 128 - shift)))) + @boolToInt(r0 < corr);
-        result[0] = @truncate(u64, r0);
-        result[1] = @intCast(u64, r0 >> 64);
-        result[2] = @truncate(u64, r1);
-        result[3] = @intCast(u64, r1 >> 64);
-    } else if (shift == 128) {
-        const r0 = corr + p1;
-        const r1 = p2 + @boolToInt(r0 < corr);
-        result[0] = @truncate(u64, r0);
-        result[1] = @intCast(u64, r0 >> 64);
-        result[2] = @truncate(u64, r1);
-        result[3] = @intCast(u64, r1 >> 64);
-    } else {
-        const r0 = corr + ((p1 >> @intCast(u7, shift - 128)) | (p2 << @intCast(u7, 256 - shift)));
-        const r1 = (p2 >> @intCast(u7, shift - 128)) + @boolToInt(r0 < corr);
-        result[0] = @truncate(u64, r0);
-        result[1] = @intCast(u64, r0 >> 64);
-        result[2] = @truncate(u64, r1);
-        result[3] = @intCast(u64, r1 >> 64);
-    }
-}
-
 // Computes 5^i in the form required by Ryu, and stores it in the given pointer.
 pub fn computePow5(i: u32, result: []u64) void {
-    const base = i / POW5_TABLE_SIZE;
-    const base2 = base * POW5_TABLE_SIZE;
-    const mul = GENERIC_POW5_SPLIT[base];
+    const base = i / generic_pow5_table.len;
+    const base2 = base * generic_pow5_table.len;
+    const mul = generic_pow5_split[base];
     if (i == base2) {
         result[0] = mul[0];
         result[1] = mul[1];
@@ -466,18 +366,18 @@ pub fn computePow5(i: u32, result: []u64) void {
         result[3] = mul[3];
     } else {
         const offset = i - base2;
-        const m = GENERIC_POW5_TABLE[offset];
-        const delta = pow5Bits(@intCast(i32, i)) - pow5Bits(@intCast(i32, base2));
-        const corr = @intCast(u32, (POW5_ERRORS[i / 32] >> @intCast(u6, (2 * (i % 32)))) & 3);
-        mul_128_256_shift(m, mul, delta, corr, result);
+        const m = generic_pow5_table[offset];
+        const delta = helper.pow5Bits(@intCast(i32, i)) - helper.pow5Bits(@intCast(i32, base2));
+        const corr = @intCast(u32, (pow5_errors[i / 32] >> @intCast(u6, (2 * (i % 32)))) & 3);
+        helper.mul_128_256_shift(m, mul, delta, corr, result);
     }
 }
 
 // Computes 5^-i in the form required by Ryu, and stores it in the given pointer.
 pub fn computeInvPow5(i: u32, result: []u64) void {
-    const base = (i + POW5_TABLE_SIZE - 1) / POW5_TABLE_SIZE;
-    const base2 = base * POW5_TABLE_SIZE;
-    const mul = GENERIC_POW5_INV_SPLIT[base]; // 1/5^base2
+    const base = (i + generic_pow5_table.len - 1) / generic_pow5_table.len;
+    const base2 = base * generic_pow5_table.len;
+    const mul = generic_pow5_inv_split[base]; // 1/5^base2
     if (i == base2) {
         result[0] = mul[0] + 1;
         result[1] = mul[1];
@@ -485,60 +385,12 @@ pub fn computeInvPow5(i: u32, result: []u64) void {
         result[3] = mul[3];
     } else {
         const offset = base2 - i;
-        const m = GENERIC_POW5_TABLE[offset]; // 5^offset
-        const delta = pow5Bits(@intCast(i32, base2)) - pow5Bits(@intCast(i32, i));
-        const corr = @intCast(u32, ((POW5_INV_ERRORS[i / 32] >> @intCast(u6, (2 * (i % 32)))) & 3) + 1);
-        mul_128_256_shift(m, mul, delta, corr, result);
+        const m = generic_pow5_table[offset]; // 5^offset
+        const delta = helper.pow5Bits(@intCast(i32, base2)) - helper.pow5Bits(@intCast(i32, i));
+        const corr = @intCast(u32, ((pow5_inv_errors[i / 32] >> @intCast(u6, (2 * (i % 32)))) & 3) + 1);
+        helper.mul_128_256_shift(m, mul, delta, corr, result);
     }
 }
-
-// Returns true if value is divisible by 2^p.
-pub fn multipleOfPowerOf2(value: u128, p: u32) bool {
-    return @ctz(value) >= p;
-}
-
-pub fn mulShift(m: u128, mul: []const u64, j: i32) u128 {
-    std.debug.assert(j > 128);
-
-    var a: [2]u64 = undefined;
-
-    a[0] = @truncate(u64, m);
-    a[1] = @intCast(u64, m >> 64);
-
-    var result: [4]u64 = undefined;
-
-    mul_128_256_shift(a, mul, @intCast(u32, j), 0, result[0..]);
-    return (u128(result[1]) << 64) | result[0];
-}
-
-pub fn decimalLength2(v: u128) u32 {
-    var p10: u128 = 100000000000000000000000000000000000000;
-
-    var i: u32 = 39;
-    while (i > 0) : (i -= 1) {
-        if (v >= p10) {
-            return i;
-        }
-        p10 /= 10;
-    }
-
-    return 1;
-}
-
-pub fn decimalLength(v: u128) u32 {
-    const LARGEST_POW10: u128 = 100000000000000000000000000000000000000;
-    var p10 = LARGEST_POW10;
-    var i: u32 = 39;
-    while (i > 0) : (i -= 1) {
-        if (v >= p10) {
-            return i;
-        }
-        p10 /= 10;
-    }
-    return 1;
-}
-
-// Tests
 
 const assert = std.debug.assert;
 
@@ -598,63 +450,4 @@ test "ryu128.tables generic_computeInvPow5" {
         assert(EXACT_INV_POW5[i][2] == result[2]);
         assert(EXACT_INV_POW5[i][3] == result[3]);
     }
-}
-
-test "ryu128.tables multipleOfPowerOf5" {
-    assert(multipleOfPowerOf5(u128(1), 0));
-    assert(!multipleOfPowerOf5(u128(1), 1));
-    assert(multipleOfPowerOf5(u128(5), 1));
-    assert(multipleOfPowerOf5(u128(25), 2));
-    assert(multipleOfPowerOf5(u128(75), 2));
-    assert(multipleOfPowerOf5(u128(50), 2));
-    assert(!multipleOfPowerOf5(u128(51), 2));
-    assert(!multipleOfPowerOf5(u128(75), 4));
-}
-
-test "ryu128.tables multipleOfPowerOf2" {
-    assert(multipleOfPowerOf5(u128(1), 0));
-    assert(!multipleOfPowerOf5(u128(1), 1));
-    assert(multipleOfPowerOf2(u128(2), 1));
-    assert(multipleOfPowerOf2(u128(4), 2));
-    assert(multipleOfPowerOf2(u128(8), 2));
-    assert(multipleOfPowerOf2(u128(12), 2));
-    assert(!multipleOfPowerOf2(u128(13), 2));
-    assert(!multipleOfPowerOf2(u128(8), 4));
-}
-
-test "ryu128.tables mulShift" {
-    var m = []u64{ 0, 0, 2, 0 };
-    assert(mulShift(1, m, 129) == 1);
-    assert(mulShift(12345, m, 129) == 12345);
-}
-
-test "ryu128.tables mulShiftHuge" {
-    var m = []u64{ 0, 0, 8, 0 };
-    const f = (u128(123) << 64) | 321;
-    assert(mulShift(f, m, 131) == f);
-}
-
-test "ryu128.tables decimalLength" {
-    assert(decimalLength(1) == 1);
-    assert(decimalLength(9) == 1);
-    assert(decimalLength(10) == 2);
-    assert(decimalLength(99) == 2);
-    assert(decimalLength(100) == 3);
-
-    const tenPow38 = 100000000000000000000000000000000000000;
-    // 10^38 has 39 digits.
-    assert(decimalLength(tenPow38) == 39);
-}
-
-test "ryu128.tables log10pow2" {
-    assert(log10Pow2(1) == 0);
-    assert(log10Pow2(5) == 1);
-    assert(log10Pow2(1 << 15) == 9864);
-}
-
-test "ryu128.tables log10pow5" {
-    assert(log10Pow5(1) == 0);
-    assert(log10Pow5(2) == 1);
-    assert(log10Pow5(3) == 2);
-    assert(log10Pow5(1 << 15) == 22903);
 }
