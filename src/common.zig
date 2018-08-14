@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 
 // A table of all two-digit numbers. This is used to speed up decimal digit
 // generation by copying pairs of digits into the final output.
@@ -80,6 +81,57 @@ pub fn multipleOfPowerOf5(value: var, p: i32) bool {
     std.debug.assert(!@typeOf(value).is_signed);
 
     return pow5Factor(value) >= p;
+}
+
+pub fn decimalLength(comptime unroll: bool, comptime factor: comptime_int, v: var) u32 {
+    const T = @typeOf(v);
+
+    // TODO: Integer pow in std.math
+    comptime var pp = 1;
+    comptime var j: usize = 1;
+    inline while (j < factor) : (j += 1) {
+        pp *= 10;
+    }
+
+    // TODO: Adjust bounds to fit, we don't need the top check that we are emitting
+    // std.debug.assert(v < pp);
+
+    if (unroll) {
+        comptime var p10 = pp;
+        comptime var i: u32 = factor;
+
+        inline while (i > 0) : (i -= 1) {
+            if (v >= p10) {
+                return i;
+            }
+            p10 /= 10;
+        }
+        return 1;
+
+    } else {
+        var p10: T = pp;
+        var i: u32 = factor;
+
+        while (i > 0) : (i -= 1) {
+            if (v >= p10) {
+                return i;
+            }
+            p10 /= 10;
+        }
+        return 1;
+    }
+}
+
+test "ryu.common decimalLength" {
+    assert(decimalLength(false, 39, u128(1)) == 1);
+    assert(decimalLength(false, 39, u128(9)) == 1);
+    assert(decimalLength(false, 39, u128(10)) == 2);
+    assert(decimalLength(false, 39, u128(99)) == 2);
+    assert(decimalLength(false, 39, u128(100)) == 3);
+
+    const tenPow38: u128 = 100000000000000000000000000000000000000;
+    // 10^38 has 39 digits.
+    assert(decimalLength(false, 39, tenPow38) == 39);
 }
 
 pub fn copySpecialString(result: []u8, d: var) usize {

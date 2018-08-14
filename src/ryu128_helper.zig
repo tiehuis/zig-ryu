@@ -25,28 +25,7 @@ pub fn log10Pow5(e: i32) i32 {
     return @intCast(i32, (@intCast(u64, e) * 196742565691928) >> 48);
 }
 
-pub fn pow5Factor(n: var) i32 {
-    var value = n;
-    var count: i32 = 0;
-
-    while (value > 0) : ({
-        count += 1;
-        value = @divTrunc(value, 5);
-    }) {
-        if (@mod(value, 5) != 0) {
-            return count;
-        }
-    }
-    return 0;
-}
-
-// Returns true if value is divisible by 5^p.
-pub inline fn multipleOfPowerOf5(value: var, p: i32) bool {
-    std.debug.assert(@typeId(@typeOf(value)) == builtin.TypeId.Int);
-    std.debug.assert(!@typeOf(value).is_signed);
-
-    return pow5Factor(value) >= p;
-}
+pub const multipleOfPowerOf5 = @import("common.zig").multipleOfPowerOf5;
 
 pub fn mul_128_256_shift(a: []const u64, b: []const u64, shift: u32, corr: u32, result: []u64) void {
     std.debug.assert(shift > 0);
@@ -120,19 +99,6 @@ pub fn mulShift(m: u128, mul: []const u64, j: i32) u128 {
     return (u128(result[1]) << 64) | result[0];
 }
 
-pub fn decimalLength(v: u128) u32 {
-    const LARGEST_POW10: u128 = 100000000000000000000000000000000000000;
-    var p10 = LARGEST_POW10;
-    var i: u32 = 39;
-    while (i > 0) : (i -= 1) {
-        if (v >= p10) {
-            return i;
-        }
-        p10 /= 10;
-    }
-    return 1;
-}
-
 test "ryu128.tables multipleOfPowerOf5" {
     assert(multipleOfPowerOf5(u128(1), 0));
     assert(!multipleOfPowerOf5(u128(1), 1));
@@ -165,18 +131,6 @@ test "ryu128.tables mulShiftHuge" {
     var m = []u64{ 0, 0, 8, 0 };
     const f = (u128(123) << 64) | 321;
     assert(mulShift(f, m, 131) == f);
-}
-
-test "ryu128.tables decimalLength" {
-    assert(decimalLength(1) == 1);
-    assert(decimalLength(9) == 1);
-    assert(decimalLength(10) == 2);
-    assert(decimalLength(99) == 2);
-    assert(decimalLength(100) == 3);
-
-    const tenPow38 = 100000000000000000000000000000000000000;
-    // 10^38 has 39 digits.
-    assert(decimalLength(tenPow38) == 39);
 }
 
 test "ryu128.tables log10pow2" {

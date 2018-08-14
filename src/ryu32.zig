@@ -73,26 +73,6 @@ fn mulPow5DivPow2(m: u32, i: u32, j: i32) u32 {
     return mulShift(m, table.float_pow5_split[i], j);
 }
 
-fn decimalLength(v: u32) usize {
-    // Function precondition: v is not a 10-digit number.
-    // (9 digits are sufficient for round-tripping.)
-    std.debug.assert(v < 1000000000);
-
-    comptime var n = 100000000;
-    comptime var i = 9;
-
-    inline while (n != 1) : ({
-        n /= 10;
-        i -= 1;
-    }) {
-        if (v >= n) {
-            return i;
-        }
-    }
-
-    return i;
-}
-
 const Decimal32 = struct {
     sign: bool,
     mantissa: u32,
@@ -121,11 +101,11 @@ pub fn ryu32(f: f32, result: []u8) []u8 {
     return result[0..index];
 }
 
-fn floatToDecimal(bits: u32, comptime mantissa_bits: comptime_int, comptime exponent_bits: comptime_int, comptime explicit_leading_bit: bool) Decimal32 {
-    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
+fn floatToDecimal(bits: u32, mantissa_bits: u5, exponent_bits: u5, explicit_leading_bit: bool) Decimal32 {
+    const exponent_bias = (u32(1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((1 << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((1 << exponent_bits) - 1);
+    const mantissa = bits & ((u32(1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((u32(1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -135,10 +115,10 @@ fn floatToDecimal(bits: u32, comptime mantissa_bits: comptime_int, comptime expo
             .exponent = 0,
         };
     }
-    if (exponent == ((1 << exponent_bits) - 1)) {
+    if (exponent == ((u32(1) << exponent_bits) - 1)) {
         return Decimal32{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((1 << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((u32(1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -150,29 +130,29 @@ fn floatToDecimal(bits: u32, comptime mantissa_bits: comptime_int, comptime expo
     if (explicit_leading_bit) {
         // mantissa includes the explicit leading bit, so we need to correct for that here
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         } else {
-            e2 = exponent - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         }
         m2 = mantissa;
     } else {
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
             m2 = mantissa;
         } else {
-            e2 = @intCast(i32, exponent) - exponent_bias - mantissa_bits - 2;
-            m2 = (1 << mantissa_bits) | mantissa;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
+            m2 = (u32(1) << mantissa_bits) | mantissa;
         }
     }
 
-    const even = (m2 & 1) == 0;
+    const even = m2 & 1 == 0;
     const accept_bounds = even;
 
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     const mp = 4 * m2 + 2;
     // Implicit bool -> int conversion. True is 1, false is 0.
-    const mm_shift = (mantissa != 0) or (exponent <= 1);
+    const mm_shift = mantissa != 0 or exponent <= 1;
     const mm = 4 * m2 - 1 - @boolToInt(mm_shift);
 
     // Step 3: Convert to a decimal power base using 64-bit arithmetic.
@@ -305,7 +285,7 @@ fn decimalToBuffer(v: Decimal32, result: []u8) usize {
     }
 
     var output = v.mantissa;
-    const olength = decimalLength(output);
+    const olength = common.decimalLength(true, 9, output);
 
     // Print the decimal digits. The following code is equivalent to:
     //

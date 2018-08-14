@@ -37,28 +37,6 @@ pub fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mm_shif
     return mulShift(4 * m, mul, j);
 }
 
-pub fn decimalLength(v: u64) u32 {
-    // This is slightly faster than a loop.
-    // The average output length is 16.38 digits, so we check high-to-low.
-    // Function precondition: v is not an 18, 19, or 20-digit number.
-    // (17 digits are sufficient for round-tripping.)
-    std.debug.assert(v < 100000000000000000);
-
-    comptime var n = 10000000000000000;
-    comptime var i = 17;
-
-    inline while (n != 1) : ({
-        n /= 10;
-        i -= 1;
-    }) {
-        if (v >= n) {
-            return i;
-        }
-    }
-
-    return i;
-}
-
 const Decimal64 = struct {
     sign: bool,
     mantissa: u64,
@@ -77,11 +55,11 @@ pub fn ryu64(f: f64, result: []u8) []u8 {
     return result[0..index];
 }
 
-fn floatToDecimal(bits: u64, comptime mantissa_bits: comptime_int, comptime exponent_bits: comptime_int, comptime explicit_leading_bit: bool) Decimal64 {
-    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
+fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_leading_bit: bool) Decimal64 {
+    const exponent_bias = (u64(1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((1 << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((1 << exponent_bits) - 1);
+    const mantissa = bits & ((u64(1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((u64(1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -91,10 +69,10 @@ fn floatToDecimal(bits: u64, comptime mantissa_bits: comptime_int, comptime expo
             .exponent = 0,
         };
     }
-    if (exponent == ((1 << exponent_bits) - 1)) {
+    if (exponent == ((u64(1) << exponent_bits) - 1)) {
         return Decimal64{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((1 << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((u64(1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -106,18 +84,18 @@ fn floatToDecimal(bits: u64, comptime mantissa_bits: comptime_int, comptime expo
     if (explicit_leading_bit) {
         // mantissa includes the explicit leading bit, so we need to correct for that here
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         } else {
-            e2 = exponent - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         }
         m2 = mantissa;
     } else {
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
             m2 = mantissa;
         } else {
-            e2 = @intCast(i32, exponent) - exponent_bias - mantissa_bits - 2;
-            m2 = (1 << mantissa_bits) | mantissa;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
+            m2 = (u64(1) << mantissa_bits) | mantissa;
         }
     }
 
@@ -127,7 +105,7 @@ fn floatToDecimal(bits: u64, comptime mantissa_bits: comptime_int, comptime expo
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
-    const mm_shift = (mantissa != 0) or (exponent <= 1);
+    const mm_shift = mantissa != 0 or exponent <= 1;
     // We would compute mp and mm like this:
     //  uint64_t mp = 4 * m2 + 2;
     //  uint64_t mm = mv - 1 - mm_shift;
@@ -292,7 +270,7 @@ fn decimalToBuffer(v: Decimal64, result: []u8) usize {
     }
 
     var output = v.mantissa;
-    const olength = decimalLength(output);
+    const olength = common.decimalLength(true, 17, output);
 
     // Print the decimal digits. The following code is equivalent to:
     //

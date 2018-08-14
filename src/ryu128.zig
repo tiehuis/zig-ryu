@@ -54,12 +54,11 @@ pub fn ryu128(f: f128, result: []u8) []u8 {
     return result[0..index];
 }
 
-// TODO: Don't accept values as comptime, specialization is likely too costly for code size.
-fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exponent_bits: comptime_int, comptime explicit_leading_bit: bool) Decimal128 {
-    const exponent_bias = (1 << (exponent_bits - 1)) - 1;
+fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_leading_bit: bool) Decimal128 {
+    const exponent_bias = (u128(1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((1 << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((1 << exponent_bits) - 1);
+    const mantissa = bits & ((u128(1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((u128(1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -69,10 +68,10 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
             .exponent = 0,
         };
     }
-    if (exponent == ((1 << exponent_bits) - 1)) {
+    if (exponent == ((u128(1) << exponent_bits) - 1)) {
         return Decimal128{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((1 << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((u128(1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -84,18 +83,18 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
     if (explicit_leading_bit) {
         // mantissa includes the explicit leading bit, so we need to correct for that here
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         } else {
-            e2 = exponent - exponent_bias - mantissa_bits + 1 - 2;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) + 1 - 2;
         }
         m2 = mantissa;
     } else {
         if (exponent == 0) {
-            e2 = 1 - exponent_bias - mantissa_bits - 2;
+            e2 = 1 - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
             m2 = mantissa;
         } else {
-            e2 = @intCast(i32, exponent) - exponent_bias - mantissa_bits - 2;
-            m2 = (1 << mantissa_bits) | mantissa;
+            e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
+            m2 = (u128(1) << mantissa_bits) | mantissa;
         }
     }
 
@@ -105,7 +104,7 @@ fn floatToDecimal(bits: u128, comptime mantissa_bits: comptime_int, comptime exp
     // Step 2: Determine the interval of legal decimal representations.
     const mv = 4 * m2;
     // Implicit bool -> int conversion. True is 1, false is 0.
-    const mm_shift = (mantissa != 0) or (exponent <= 1);
+    const mm_shift = mantissa != 0 or exponent <= 1;
 
     // Step 3: Convert to a decimal power base using 128-bit arithmetic.
     var vr: u128 = undefined;
@@ -235,7 +234,7 @@ fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     }
 
     var output = v.mantissa;
-    const olength = helper.decimalLength(output);
+    const olength = common.decimalLength(false, 39, output);
 
     // Print the decimal digits.
     var i: usize = 0;
@@ -266,7 +265,7 @@ fn decimalToBuffer(v: Decimal128, result: []u8) usize {
     }
 
     var expu = @intCast(usize, exp);
-    const elength = helper.decimalLength(expu);
+    const elength = common.decimalLength(false, 39, @intCast(u128, expu));
 
     var j: usize = 0;
     while (j < elength) : (j += 1) {
