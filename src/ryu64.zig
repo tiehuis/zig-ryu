@@ -26,8 +26,8 @@ const DIGIT_TABLE = common.DIGIT_TABLE;
 const ryu_optimize_size = builtin.mode == builtin.Mode.ReleaseSmall;
 
 pub fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
-    const b0 = u128(m) * mul[0];
-    const b2 = u128(m) * mul[1];
+    const b0 = @as(u128, m) * mul[0];
+    const b2 = @as(u128, m) * mul[1];
     return @truncate(u64, (((b0 >> 64) + b2) >> @intCast(u7, (j - 64))));
 }
 
@@ -56,10 +56,10 @@ pub fn ryu64(f: f64, result: []u8) []u8 {
 }
 
 fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_leading_bit: bool) Decimal64 {
-    const exponent_bias = (u64(1) << (exponent_bits - 1)) - 1;
+    const exponent_bias = (@as(u64, 1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((u64(1) << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((u64(1) << exponent_bits) - 1);
+    const mantissa = bits & ((@as(u64, 1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((@as(u64, 1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -69,10 +69,10 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
             .exponent = 0,
         };
     }
-    if (exponent == ((u64(1) << exponent_bits) - 1)) {
+    if (exponent == ((@as(u64, 1) << exponent_bits) - 1)) {
         return Decimal64{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((u64(1) << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((@as(u64, 1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -95,7 +95,7 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
             m2 = mantissa;
         } else {
             e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
-            m2 = (u64(1) << mantissa_bits) | mantissa;
+            m2 = (@as(u64, 1) << mantissa_bits) | mantissa;
         }
     }
 
@@ -182,7 +182,7 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
             // <=> ntz(mv) >= q-1    (e2 is negative and -e2 >= q)
             // <=> (mv & ((1 << (q-1)) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
-            vr_is_trailing_zeros = (mv & ((u64(1) << @intCast(u6, q - 1)) - 1)) == 0;
+            vr_is_trailing_zeros = (mv & ((@as(u64, 1) << @intCast(u6, q - 1)) - 1)) == 0;
         }
     }
 
@@ -390,7 +390,7 @@ fn T(expected: []const u8, input: f64) void {
 
 test "ryu64 basic" {
     T("0E0", 0.0);
-    T("-0E0", -f64(0.0));
+    T("-0E0", -@as(f64, 0.0));
     T("1E0", 1.0);
     T("-1E0", -1.0);
     T("NaN", std.math.nan(f64));
@@ -403,8 +403,8 @@ test "ryu64 switch to subnormal" {
 }
 
 test "ryu64 min and max" {
-    T("1.7976931348623157E308", @bitCast(f64, u64(0x7fefffffffffffff)));
-    T("5E-324", @bitCast(f64, u64(1)));
+    T("1.7976931348623157E308", @bitCast(f64, @as(u64, 0x7fefffffffffffff)));
+    T("5E-324", @bitCast(f64, @as(u64, 1)));
 }
 
 test "ryu64 lots of trailing zeros" {
@@ -415,9 +415,9 @@ test "ryu64 looks like pow5" {
     // These numbers have a mantissa that is a multiple of the largest power of 5 that fits,
     // and an exponent that causes the computation for q to result in 22, which is a corner
     // case for Ryu.
-    T("5.764607523034235E39", @bitCast(f64, u64(0x4830F0CF064DD592)));
-    T("1.152921504606847E40", @bitCast(f64, u64(0x4840F0CF064DD592)));
-    T("2.305843009213694E40", @bitCast(f64, u64(0x4850F0CF064DD592)));
+    T("5.764607523034235E39", @bitCast(f64, @as(u64, 0x4830F0CF064DD592)));
+    T("1.152921504606847E40", @bitCast(f64, @as(u64, 0x4840F0CF064DD592)));
+    T("2.305843009213694E40", @bitCast(f64, @as(u64, 0x4850F0CF064DD592)));
 }
 
 test "ryu64 regression" {

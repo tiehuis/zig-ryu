@@ -18,7 +18,7 @@ pub const ryu128 = ryu128_backend.ryu128;
 // f80  - 53 (TODO: Can reduce)
 // f128 - 53
 fn floatToBuffer(x: var, buffer: []u8) []u8 {
-    const T = @typeOf(x);
+    const T = @TypeOf(x);
     return switch (T) {
         f16 => ryu16(x, buffer),
         f32 => ryu32(x, buffer),
@@ -36,18 +36,18 @@ test "ryu buffer interface" {
     var buffer: [53]u8 = undefined;
     var slice: []u8 = undefined;
 
-    slice = floatToBuffer(f16(0.0), buffer[0..]);
+    slice = floatToBuffer(@as(f16, 0.0), buffer[0..]);
     std.debug.assert(std.mem.eql(u8, "0E0", slice));
 
-    slice = floatToBuffer(f32(0.0), buffer[0..]);
+    slice = floatToBuffer(@as(f32, 0.0), buffer[0..]);
     std.debug.assert(std.mem.eql(u8, "0E0", slice));
 
-    slice = floatToBuffer(f64(0.0), buffer[0..]);
+    slice = floatToBuffer(@as(f64, 0.0), buffer[0..]);
     std.debug.assert(std.mem.eql(u8, "0E0", slice));
 
-    //slice = floatToBuffer(c_longdouble(0.0), buffer[0..]);
+    //slice = floatToBuffer(@as(c_longdouble, 0.0), buffer[0..]);
     //std.debug.assert(std.mem.eql(u8, "0E0", slice));
 
-    slice = floatToBuffer(f128(0.0), buffer[0..]);
+    slice = floatToBuffer(@as(f128, 0.0), buffer[0..]);
     std.debug.assert(std.mem.eql(u8, "0E0", slice));
 }

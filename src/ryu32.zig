@@ -57,8 +57,8 @@ fn mulShift(m: u32, factor: u64, shift: i32) u32 {
 
     const factor_lo = @truncate(u32, factor);
     const factor_hi = @intCast(u32, factor >> 32);
-    const bits0 = u64(m) * factor_lo;
-    const bits1 = u64(m) * factor_hi;
+    const bits0 = @as(u64, m) * factor_lo;
+    const bits1 = @as(u64, m) * factor_hi;
 
     const sum = (bits0 >> 32) + bits1;
     const shifted_sum = sum >> @intCast(u6, shift - 32);
@@ -102,10 +102,10 @@ pub fn ryu32(f: f32, result: []u8) []u8 {
 }
 
 fn floatToDecimal(bits: u32, mantissa_bits: u5, exponent_bits: u5, explicit_leading_bit: bool) Decimal32 {
-    const exponent_bias = (u32(1) << (exponent_bits - 1)) - 1;
+    const exponent_bias = (@as(u32, 1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((u32(1) << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((u32(1) << exponent_bits) - 1);
+    const mantissa = bits & ((@as(u32, 1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((@as(u32, 1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -115,10 +115,10 @@ fn floatToDecimal(bits: u32, mantissa_bits: u5, exponent_bits: u5, explicit_lead
             .exponent = 0,
         };
     }
-    if (exponent == ((u32(1) << exponent_bits) - 1)) {
+    if (exponent == ((@as(u32, 1) << exponent_bits) - 1)) {
         return Decimal32{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((u32(1) << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((@as(u32, 1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -141,7 +141,7 @@ fn floatToDecimal(bits: u32, mantissa_bits: u5, exponent_bits: u5, explicit_lead
             m2 = mantissa;
         } else {
             e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
-            m2 = (u32(1) << mantissa_bits) | mantissa;
+            m2 = (@as(u32, 1) << mantissa_bits) | mantissa;
         }
     }
 
@@ -217,7 +217,7 @@ fn floatToDecimal(bits: u32, mantissa_bits: u5, exponent_bits: u5, explicit_lead
                 vp -= 1;
             }
         } else if (q < 31) { // TODO(ulfjack): Use a tighter bound here.
-            vr_is_trailing_zeros = (mv & ((u32(1) << @intCast(u5, (q - 1))) - 1)) == 0;
+            vr_is_trailing_zeros = (mv & ((@as(u32, 1) << @intCast(u5, (q - 1))) - 1)) == 0;
         }
     }
 
@@ -366,7 +366,7 @@ fn T(expected: []const u8, input: f32) void {
 
 test "ryu32 basic" {
     T("0E0", 0.0);
-    T("-0E0", -f32(0.0));
+    T("-0E0", -@as(f32, 0.0));
     T("1E0", 1.0);
     T("-1E0", -1.0);
     T("NaN", std.math.nan(f32));
@@ -379,8 +379,8 @@ test "ryu32 switch to subnormal" {
 }
 
 test "ryu32 min and max" {
-    T("3.4028235E38", @bitCast(f32, u32(0x7f7fffff)));
-    T("1E-45", @bitCast(f32, u32(1)));
+    T("3.4028235E38", @bitCast(f32, @as(u32, 0x7f7fffff)));
+    T("1E-45", @bitCast(f32, @as(u32, 1)));
 }
 
 // Check that we return the exact boundary if it is the shortest
@@ -411,9 +411,9 @@ test "ryu32 looks like pow5" {
     // These numbers have a mantissa that is the largest power of 5 that fits,
     // and an exponent that causes the computation for q to result in 10, which is a corner
     // case for Ryu.
-    T("6.7108864E17", @bitCast(f32, u32(0x5D1502F9)));
-    T("1.3421773E18", @bitCast(f32, u32(0x5D9502F9)));
-    T("2.6843546E18", @bitCast(f32, u32(0x5E1502F9)));
+    T("6.7108864E17", @bitCast(f32, @as(u32, 0x5D1502F9)));
+    T("1.3421773E18", @bitCast(f32, @as(u32, 0x5D9502F9)));
+    T("2.6843546E18", @bitCast(f32, @as(u32, 0x5E1502F9)));
 }
 
 test "ryu32 regression" {
