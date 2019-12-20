@@ -55,10 +55,10 @@ pub fn ryu128(f: f128, result: []u8) []u8 {
 }
 
 fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_leading_bit: bool) Decimal128 {
-    const exponent_bias = (u128(1) << (exponent_bits - 1)) - 1;
+    const exponent_bias = (@as(u128, 1) << (exponent_bits - 1)) - 1;
     const sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
-    const mantissa = bits & ((u128(1) << mantissa_bits) - 1);
-    const exponent = (bits >> mantissa_bits) & ((u128(1) << exponent_bits) - 1);
+    const mantissa = bits & ((@as(u128, 1) << mantissa_bits) - 1);
+    const exponent = (bits >> mantissa_bits) & ((@as(u128, 1) << exponent_bits) - 1);
 
     // Filter out special case nan and inf
     if (exponent == 0 and mantissa == 0) {
@@ -68,10 +68,10 @@ fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_lea
             .exponent = 0,
         };
     }
-    if (exponent == ((u128(1) << exponent_bits) - 1)) {
+    if (exponent == ((@as(u128, 1) << exponent_bits) - 1)) {
         return Decimal128{
             .sign = sign,
-            .mantissa = if (explicit_leading_bit) mantissa & ((u128(1) << (mantissa_bits - 1)) - 1) else mantissa,
+            .mantissa = if (explicit_leading_bit) mantissa & ((@as(u128, 1) << (mantissa_bits - 1)) - 1) else mantissa,
             .exponent = 0x7fffffff,
         };
     }
@@ -94,7 +94,7 @@ fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_lea
             m2 = mantissa;
         } else {
             e2 = @intCast(i32, exponent) - @intCast(i32, exponent_bias) - @intCast(i32, mantissa_bits) - 2;
-            m2 = (u128(1) << mantissa_bits) | mantissa;
+            m2 = (@as(u128, 1) << mantissa_bits) | mantissa;
         }
     }
 
@@ -127,7 +127,7 @@ fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_lea
         table.computeInvPow5(@intCast(u32, q), pow5[0..]);
         vr = helper.mulShift(4 * m2, pow5[0..], i);
         vp = helper.mulShift(4 * m2 + 2, pow5[0..], i);
-        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, i);
+        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5[0..], i);
 
         // floor(log_5(2^128)) = 55, this is very conservative
         if (q <= 55) {
@@ -156,7 +156,7 @@ fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_lea
         table.computePow5(@intCast(u32, i), pow5[0..]);
         vr = helper.mulShift(4 * m2, pow5[0..], j);
         vp = helper.mulShift(4 * m2 + 2, pow5[0..], j);
-        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5, j);
+        vm = helper.mulShift(4 * m2 - 1 - @boolToInt(mm_shift), pow5[0..], j);
 
         if (q <= 1) {
             // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q trailing 0 bits.
@@ -174,7 +174,7 @@ fn floatToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u7, explicit_lea
             // <=> ntz(mv) >= q-1    (e2 is negative and -e2 >= q)
             // <=> (mv & ((1 << (q-1)) - 1)) == 0
             // We also need to make sure that the left shift does not overflow.
-            vr_is_trailing_zeros = (mv & ((u128(1) << @intCast(u7, q - 1)) - 1)) == 0;
+            vr_is_trailing_zeros = (mv & ((@as(u128, 1) << @intCast(u7, q - 1)) - 1)) == 0;
         }
     }
 
@@ -349,15 +349,15 @@ test "ryu128 generic to char long" {
 
 test "ryu128 generic (f32)" {
     T32("0E0", 0.0);
-    T32("-0E0", -f32(0.0));
+    T32("-0E0", -@as(f32, 0.0));
     T32("1E0", 1.0);
     T32("-1E0", -1.0);
     T32("NaN", std.math.nan(f32));
     T32("Infinity", std.math.inf(f32));
     T32("-Infinity", -std.math.inf(f32));
     T32("1.1754944E-38", 1.1754944E-38);
-    T32("3.4028235E38", @bitCast(f32, u32(0x7f7fffff)));
-    T32("1E-45", @bitCast(f32, u32(1)));
+    T32("3.4028235E38", @bitCast(f32, @as(u32, 0x7f7fffff)));
+    T32("1E-45", @bitCast(f32, @as(u32, 1)));
     T32("3.355445E7", 3.355445E7);
     T32("9E9", 8.999999E9);
     T32("3.436672E10", 3.4366717E10);
@@ -409,15 +409,15 @@ test "ryu128 generic (f32)" {
 
 test "ryu128 generic (f64)" {
     T64("0E0", 0.0);
-    T64("-0E0", -f64(0.0));
+    T64("-0E0", -@as(f64, 0.0));
     T64("1E0", 1.0);
     T64("-1E0", -1.0);
     T64("NaN", std.math.nan(f64));
     T64("Infinity", std.math.inf(f64));
     T64("-Infinity", -std.math.inf(f64));
     T64("2.2250738585072014E-308", 2.2250738585072014E-308);
-    T64("1.7976931348623157E308", @bitCast(f64, u64(0x7fefffffffffffff)));
-    T64("5E-324", @bitCast(f64, u64(1)));
+    T64("1.7976931348623157E308", @bitCast(f64, @as(u64, 0x7fefffffffffffff)));
+    T64("5E-324", @bitCast(f64, @as(u64, 1)));
     T64("2.9802322387695312E-8", 2.98023223876953125E-8);
     T64("-2.109808898695963E16", -2.109808898695963E16);
     // TODO: Literal out of range
@@ -428,9 +428,9 @@ test "ryu128 generic (f64)" {
     T64("4.708356024711512E18", 4.708356024711512E18);
     T64("9.409340012568248E18", 9.409340012568248E18);
     T64("1.2345678E0", 1.2345678);
-    T64("5.764607523034235E39", @bitCast(f64, u64(0x4830F0CF064DD592)));
-    T64("1.152921504606847E40", @bitCast(f64, u64(0x4840F0CF064DD592)));
-    T64("2.305843009213694E40", @bitCast(f64, u64(0x4850F0CF064DD592)));
+    T64("5.764607523034235E39", @bitCast(f64, @as(u64, 0x4830F0CF064DD592)));
+    T64("1.152921504606847E40", @bitCast(f64, @as(u64, 0x4840F0CF064DD592)));
+    T64("2.305843009213694E40", @bitCast(f64, @as(u64, 0x4850F0CF064DD592)));
 
     T64("1E0", 1); // already tested in Basic
     T64("1.2E0", 1.2);

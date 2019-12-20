@@ -77,14 +77,14 @@ fn pow5Factor(n: var) i32 {
 
 // Returns true if value is divisible by 5^p.
 pub fn multipleOfPowerOf5(value: var, p: i32) bool {
-    std.debug.assert(@typeId(@typeOf(value)) == builtin.TypeId.Int);
-    std.debug.assert(!@typeOf(value).is_signed);
+    std.debug.assert(@typeId(@TypeOf(value)) == builtin.TypeId.Int);
+    std.debug.assert(!@TypeOf(value).is_signed);
 
     return pow5Factor(value) >= p;
 }
 
 pub fn decimalLength(comptime unroll: bool, comptime factor: comptime_int, v: var) u32 {
-    const T = @typeOf(v);
+    const T = @TypeOf(v);
 
     // TODO: Integer pow in std.math
     comptime var pp = 1;
@@ -122,11 +122,11 @@ pub fn decimalLength(comptime unroll: bool, comptime factor: comptime_int, v: va
 }
 
 test "ryu.common decimalLength" {
-    assert(decimalLength(false, 39, u128(1)) == 1);
-    assert(decimalLength(false, 39, u128(9)) == 1);
-    assert(decimalLength(false, 39, u128(10)) == 2);
-    assert(decimalLength(false, 39, u128(99)) == 2);
-    assert(decimalLength(false, 39, u128(100)) == 3);
+    assert(decimalLength(false, 39, @as(u128, 1)) == 1);
+    assert(decimalLength(false, 39, @as(u128, 9)) == 1);
+    assert(decimalLength(false, 39, @as(u128, 10)) == 2);
+    assert(decimalLength(false, 39, @as(u128, 99)) == 2);
+    assert(decimalLength(false, 39, @as(u128, 100)) == 3);
 
     const tenPow38: u128 = 100000000000000000000000000000000000000;
     // 10^38 has 39 digits.

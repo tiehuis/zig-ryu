@@ -8,7 +8,7 @@ mkdir -p build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null
 make -j4 > /dev/null
-cp double-conversion/libdouble-conversion.a ../../../../build
+cp libdouble-conversion.a ../../../../build
 cd ../../../..
 
 echo "building reference benchmark"

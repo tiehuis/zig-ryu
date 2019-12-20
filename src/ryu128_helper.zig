@@ -31,14 +31,14 @@ pub fn mul_128_256_shift(a: []const u64, b: []const u64, shift: u32, corr: u32, 
     std.debug.assert(shift > 0);
     std.debug.assert(shift < 256);
 
-    const b00 = u128(a[0]) * b[0]; // 0
-    const b01 = u128(a[0]) * b[1]; // 64
-    const b02 = u128(a[0]) * b[2]; // 128
-    const b03 = u128(a[0]) * b[3]; // 196
-    const b10 = u128(a[1]) * b[0]; // 64
-    const b11 = u128(a[1]) * b[1]; // 128
-    const b12 = u128(a[1]) * b[2]; // 196
-    const b13 = u128(a[1]) * b[3]; // 256
+    const b00 = @as(u128, a[0]) * b[0]; // 0
+    const b01 = @as(u128, a[0]) * b[1]; // 64
+    const b02 = @as(u128, a[0]) * b[2]; // 128
+    const b03 = @as(u128, a[0]) * b[3]; // 196
+    const b10 = @as(u128, a[1]) * b[0]; // 64
+    const b11 = @as(u128, a[1]) * b[1]; // 128
+    const b12 = @as(u128, a[1]) * b[2]; // 196
+    const b13 = @as(u128, a[1]) * b[3]; // 256
 
     const s0 = b00; // 0   x
     const s1 = b01 +% b10; // 64  x
@@ -48,13 +48,13 @@ pub fn mul_128_256_shift(a: []const u64, b: []const u64, shift: u32, corr: u32, 
     const s3 = b03 +% b12; // 196 x
     const c3 = @boolToInt(s3 < b03); // 324 x
 
-    const p0 = s0 +% (u128(s1) << 64); // 0
+    const p0 = s0 +% (@as(u128, s1) << 64); // 0
     const d0 = @boolToInt(p0 < b00); // 128
     const q1 = s2 +% (s1 >> 64) +% (s3 << 64); // 128
     const d1 = @boolToInt(q1 < s2); // 256
-    const p1 = q1 +% (u128(c1) << 64) +% d0; // 128
+    const p1 = q1 +% (@as(u128, c1) << 64) +% d0; // 128
     const d2 = @boolToInt(p1 < q1); // 256
-    const p2 = b13 +% (s3 >> 64) +% c2 +% (u128(c3) << 64) +% d1 +% d2; // 256
+    const p2 = b13 +% (s3 >> 64) +% c2 +% (@as(u128, c3) << 64) +% d1 +% d2; // 256
 
     if (shift < 128) {
         const r0 = corr + ((p0 >> @intCast(u7, shift)) | (p1 << @intCast(u7, 128 - shift)));
@@ -82,7 +82,7 @@ pub fn mul_128_256_shift(a: []const u64, b: []const u64, shift: u32, corr: u32, 
 
 // Returns true if value is divisible by 2^p.
 pub fn multipleOfPowerOf2(value: u128, p: u32) bool {
-    return @ctz(value) >= p;
+    return @ctz(u128, value) >= p;
 }
 
 pub fn mulShift(m: u128, mul: []const u64, j: i32) u128 {
@@ -95,41 +95,41 @@ pub fn mulShift(m: u128, mul: []const u64, j: i32) u128 {
 
     var result: [4]u64 = undefined;
 
-    mul_128_256_shift(a, mul, @intCast(u32, j), 0, result[0..]);
-    return (u128(result[1]) << 64) | result[0];
+    mul_128_256_shift(a[0..], mul, @intCast(u32, j), 0, result[0..]);
+    return (@as(u128, result[1]) << 64) | result[0];
 }
 
 test "ryu128.tables multipleOfPowerOf5" {
-    assert(multipleOfPowerOf5(u128(1), 0));
-    assert(!multipleOfPowerOf5(u128(1), 1));
-    assert(multipleOfPowerOf5(u128(5), 1));
-    assert(multipleOfPowerOf5(u128(25), 2));
-    assert(multipleOfPowerOf5(u128(75), 2));
-    assert(multipleOfPowerOf5(u128(50), 2));
-    assert(!multipleOfPowerOf5(u128(51), 2));
-    assert(!multipleOfPowerOf5(u128(75), 4));
+    assert(multipleOfPowerOf5(@as(u128, 1), 0));
+    assert(!multipleOfPowerOf5(@as(u128, 1), 1));
+    assert(multipleOfPowerOf5(@as(u128, 5), 1));
+    assert(multipleOfPowerOf5(@as(u128, 25), 2));
+    assert(multipleOfPowerOf5(@as(u128, 75), 2));
+    assert(multipleOfPowerOf5(@as(u128, 50), 2));
+    assert(!multipleOfPowerOf5(@as(u128, 51), 2));
+    assert(!multipleOfPowerOf5(@as(u128, 75), 4));
 }
 
 test "ryu128.tables multipleOfPowerOf2" {
-    assert(multipleOfPowerOf5(u128(1), 0));
-    assert(!multipleOfPowerOf5(u128(1), 1));
-    assert(multipleOfPowerOf2(u128(2), 1));
-    assert(multipleOfPowerOf2(u128(4), 2));
-    assert(multipleOfPowerOf2(u128(8), 2));
-    assert(multipleOfPowerOf2(u128(12), 2));
-    assert(!multipleOfPowerOf2(u128(13), 2));
-    assert(!multipleOfPowerOf2(u128(8), 4));
+    assert(multipleOfPowerOf5(@as(u128, 1), 0));
+    assert(!multipleOfPowerOf5(@as(u128, 1), 1));
+    assert(multipleOfPowerOf2(@as(u128, 2), 1));
+    assert(multipleOfPowerOf2(@as(u128, 4), 2));
+    assert(multipleOfPowerOf2(@as(u128, 8), 2));
+    assert(multipleOfPowerOf2(@as(u128, 12), 2));
+    assert(!multipleOfPowerOf2(@as(u128, 13), 2));
+    assert(!multipleOfPowerOf2(@as(u128, 8), 4));
 }
 
 test "ryu128.tables mulShift" {
-    var m = []u64{ 0, 0, 2, 0 };
+    var m = &[_]u64{ 0, 0, 2, 0 };
     assert(mulShift(1, m, 129) == 1);
     assert(mulShift(12345, m, 129) == 12345);
 }
 
 test "ryu128.tables mulShiftHuge" {
-    var m = []u64{ 0, 0, 8, 0 };
-    const f = (u128(123) << 64) | 321;
+    var m = &[_]u64{ 0, 0, 8, 0 };
+    const f = (@as(u128, 123) << 64) | 321;
     assert(mulShift(f, m, 131) == f);
 }
 
