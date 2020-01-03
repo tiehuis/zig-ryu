@@ -1,14 +1,16 @@
 #!/bin/sh
 
+set -e
+
 mkdir -p build
 
 echo "building double-conversion dependency"
 cd ryu/third_party/double-conversion
-mkdir -p build
-cd build
+mkdir -p build-ryu
+cd build-ryu
 cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null
 make -j4 > /dev/null
-cp libdouble-conversion.a ../../../../build
+cp double-conversion/libdouble-conversion.a ../../../../build
 cd ../../../..
 
 echo "building reference benchmark"
