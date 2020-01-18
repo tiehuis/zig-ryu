@@ -18,20 +18,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const common = @import("common.zig");
-const table = @import("ryu64_table.zig");
-const helper = common;
-const DIGIT_TABLE = common.DIGIT_TABLE;
+usingnamespace struct {
+    pub usingnamespace @import("../internal.zig");
+    pub usingnamespace @import("tables_shortest.zig");
+};
 
-const ryu_optimize_size = builtin.mode == builtin.Mode.ReleaseSmall;
+const ryu_optimize_size = false; //builtin.mode == builtin.Mode.ReleaseSmall;
 
-pub fn mulShift(m: u64, mul: []const u64, j: i32) u64 {
+pub fn mulShift(m: u64, mul: [2]u64, j: i32) u64 {
     const b0 = @as(u128, m) * mul[0];
     const b2 = @as(u128, m) * mul[1];
     return @truncate(u64, (((b0 >> 64) + b2) >> @intCast(u7, (j - 64))));
 }
 
-pub fn mulShiftAll(m: u64, mul: []const u64, j: i32, vp: *u64, vm: *u64, mm_shift: u32) u64 {
+pub fn mulShiftAll(m: u64, mul: [2]u64, j: i32, vp: *u64, vm: *u64, mm_shift: u32) u64 {
     vp.* = mulShift(4 * m + 2, mul, j);
     vm.* = mulShift(4 * m - 1 - mm_shift, mul, j);
     return mulShift(4 * m, mul, j);
@@ -43,7 +43,7 @@ const Decimal64 = struct {
     exponent: i32,
 };
 
-pub fn ryu64(f: f64, result: []u8) []u8 {
+pub fn printShortest(result: []u8, f: f64) []u8 {
     std.debug.assert(result.len >= 25);
 
     const mantissa_bits = std.math.floatMantissaBits(f64);
@@ -121,17 +121,17 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
     if (e2 >= 0) {
         // I tried special-casing q == 0, but there was no effect on performance.
         // This expression is slightly faster than max(0, log10Pow2(e2) - 1).
-        const q = helper.log10Pow2(e2) - @intCast(i32, @boolToInt(e2 > 3));
+        const q = @intCast(i32, log10Pow2(@intCast(u32, e2))) - @intCast(i32, @boolToInt(e2 > 3));
         e10 = q;
-        const k = table.double_pow5_inv_bitcount + helper.pow5Bits(q) - 1;
+        const k = DOUBLE_POW5_INV_BITCOUNT + pow5Bits(@intCast(u32, q)) - 1;
         const i = -e2 + @intCast(i32, q) + @intCast(i32, k);
 
         if (ryu_optimize_size) {
             var pow5: [2]u64 = undefined;
-            table.computeInvPow5(@intCast(u32, q), pow5[0..]);
+            computeInvPow5(@intCast(u32, q), pow5[0..]);
             vr = mulShiftAll(m2, pow5, i, &vp, &vm, @boolToInt(mm_shift));
         } else {
-            vr = mulShiftAll(m2, table.double_pow5_inv_split[@intCast(usize, q)], i, &vp, &vm, @boolToInt(mm_shift));
+            vr = mulShiftAll(m2, DOUBLE_POW5_INV_SPLIT[@intCast(usize, q)], i, &vp, &vm, @boolToInt(mm_shift));
         }
 
         if (q <= 21) {
@@ -139,31 +139,31 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
             // may still be safe, but it's more difficult to reason about them.
             // Only one of mp, mv, and mm can be a multiple of 5, if any.
             if (mv % 5 == 0) {
-                vr_is_trailing_zeros = helper.multipleOfPowerOf5(mv, q);
+                vr_is_trailing_zeros = multipleOfPowerOf5(mv, @intCast(u32, q));
             } else if (accept_bounds) {
                 // Same as min(e2 + (~mm & 1), pow5Factor(mm)) >= q
                 // <=> e2 + (~mm & 1) >= q && pow5Factor(mm) >= q
                 // <=> true && pow5Factor(mm) >= q, since e2 >= q.
-                vm_is_trailing_zeros = helper.multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), q);
+                vm_is_trailing_zeros = multipleOfPowerOf5(mv - 1 - @boolToInt(mm_shift), @intCast(u32, q));
             } else {
                 // Same as min(e2 + 1, pow5Factor(mp)) >= q.
-                vp -= @boolToInt(helper.multipleOfPowerOf5(mv + 2, q));
+                vp -= @boolToInt(multipleOfPowerOf5(mv + 2, @intCast(u32, q)));
             }
         }
     } else {
         // This expression is slightly faster than max(0, log10Pow5(-e2) - 1).
-        const q = helper.log10Pow5(-e2) - @intCast(i32, @boolToInt(-e2 > 1));
+        const q = @intCast(i32, log10Pow5(@intCast(u32, -e2))) - @intCast(i32, @boolToInt(-e2 > 1));
         e10 = q + e2;
         const i = -e2 - q;
-        const k = @intCast(i32, helper.pow5Bits(i)) - table.double_pow5_bitcount;
+        const k = @intCast(i32, pow5Bits(@intCast(u32, i))) - DOUBLE_POW5_BITCOUNT;
         const j = q - k;
 
         if (ryu_optimize_size) {
             var pow5: [2]u64 = undefined;
-            table.computePow5(@intCast(u32, i), pow5[0..]);
+            computePow5(@intCast(u32, i), pow5[0..]);
             vr = mulShiftAll(m2, pow5, j, &vp, &vm, @boolToInt(mm_shift));
         } else {
-            vr = mulShiftAll(m2, table.double_pow5_split[@intCast(usize, i)], j, &vp, &vm, @boolToInt(mm_shift));
+            vr = mulShiftAll(m2, DOUBLE_POW5_SPLIT[@intCast(usize, i)], j, &vp, &vm, @boolToInt(mm_shift));
         }
 
         if (q <= 1) {
@@ -257,9 +257,23 @@ fn floatToDecimal(bits: u64, mantissa_bits: u6, exponent_bits: u6, explicit_lead
     };
 }
 
+pub fn copySpecialString(result: []u8, d: Decimal64) usize {
+    if (d.mantissa != 0) {
+        std.mem.copy(u8, result, "NaN");
+        return 3;
+    }
+    if (d.sign) {
+        result[0] = '-';
+    }
+
+    const offset: usize = @boolToInt(d.sign);
+    std.mem.copy(u8, result[offset..], "Infinity");
+    return offset + 8;
+}
+
 fn decimalToBuffer(v: Decimal64, result: []u8) usize {
     if (v.exponent == 0x7fffffff) {
-        return common.copySpecialString(result, v);
+        return copySpecialString(result, v);
     }
 
     // Step 5: Print the decimal representation.
@@ -270,7 +284,7 @@ fn decimalToBuffer(v: Decimal64, result: []u8) usize {
     }
 
     var output = v.mantissa;
-    const olength = common.decimalLength(true, 17, output);
+    const olength = decimalLength17(output);
 
     // Print the decimal digits. The following code is equivalent to:
     //
@@ -380,54 +394,4 @@ fn decimalToBuffer(v: Decimal64, result: []u8) usize {
     }
 
     return index;
-}
-
-fn T(expected: []const u8, input: f64) void {
-    var buffer: [53]u8 = undefined;
-    const converted = ryu64(input, buffer[0..]);
-    std.debug.assert(std.mem.eql(u8, expected, converted));
-}
-
-test "ryu64 basic" {
-    T("0E0", 0.0);
-    T("-0E0", -@as(f64, 0.0));
-    T("1E0", 1.0);
-    T("-1E0", -1.0);
-    T("NaN", std.math.nan(f64));
-    T("Infinity", std.math.inf(f64));
-    T("-Infinity", -std.math.inf(f64));
-}
-
-test "ryu64 switch to subnormal" {
-    T("2.2250738585072014E-308", 2.2250738585072014E-308);
-}
-
-test "ryu64 min and max" {
-    T("1.7976931348623157E308", @bitCast(f64, @as(u64, 0x7fefffffffffffff)));
-    T("5E-324", @bitCast(f64, @as(u64, 1)));
-}
-
-test "ryu64 lots of trailing zeros" {
-    T("2.9802322387695312E-8", 2.98023223876953125E-8);
-}
-
-test "ryu64 looks like pow5" {
-    // These numbers have a mantissa that is a multiple of the largest power of 5 that fits,
-    // and an exponent that causes the computation for q to result in 22, which is a corner
-    // case for Ryu.
-    T("5.764607523034235E39", @bitCast(f64, @as(u64, 0x4830F0CF064DD592)));
-    T("1.152921504606847E40", @bitCast(f64, @as(u64, 0x4840F0CF064DD592)));
-    T("2.305843009213694E40", @bitCast(f64, @as(u64, 0x4850F0CF064DD592)));
-}
-
-test "ryu64 regression" {
-    T("-2.109808898695963E16", -2.109808898695963E16);
-    // TODO: Out of range?
-    //T("4.940656E-318", 4.940656E-318);
-    //T("1.18575755E-316", 1.18575755E-316);
-    //T("2.989102097996E-312", 2.989102097996E-312);
-    T("9.0608011534336E15", 9.0608011534336E15);
-    T("4.708356024711512E18", 4.708356024711512E18);
-    T("9.409340012568248E18", 9.409340012568248E18);
-    T("1.2345678E0", 1.2345678);
 }
