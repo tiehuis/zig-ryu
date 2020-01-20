@@ -40,3 +40,13 @@ export fn f2s(f: f32) ?[*]u8 {
     m[s.len] = 0;
     return m.ptr;
 }
+
+export fn d2fixed_buffered(f: f64, precision: u32, result: [*]u8) void {
+    const s = ryu.ryu64.printFixed(result[0..2000], f, precision);
+    result[s.len] = 0;
+}
+
+export fn d2exp_buffered(f: f64, precision: u32, result: [*]u8) void {
+    const s = ryu.ryu64.printScientific(result[0..2000], f, precision);
+    result[s.len] = 0;
+}

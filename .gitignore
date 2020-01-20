@@ -1,4 +1,4 @@
 build/
-bench-reference
-bench-zig
+bench-reference*
+bench-zig*
 zig-cache/
