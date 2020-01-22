@@ -1,8 +1,9 @@
 const std = @import("std");
 
-usingnamespace @import("common.zig");
-usingnamespace @import("intrinsics.zig");
-usingnamespace @import("tables_shortest.zig");
+usingnamespace struct {
+    pub usingnamespace @import("../internal.zig");
+    pub usingnamespace @import("tables_shortest.zig");
+};
 
 inline fn floor_log2(x: u64) u32 {
     return 63 - @clz(u64, x);
@@ -201,9 +202,6 @@ test "basic" {
 }
 
 test "min/max" {
-    if (true) {
-        return error.SkipZigTest;
-    }
     expectParse(1.7976931348623157e308, "1.7976931348623157e308");
     expectParse(5E-324, "5E-324");
 }
@@ -233,9 +231,6 @@ test "underflow" {
 }
 
 test "overflow" {
-    if (true) {
-        return error.SkipZigTest;
-    }
     expectParse(std.math.inf(f64), "2e308");
     expectParse(std.math.inf(f64), "1e309");
 }

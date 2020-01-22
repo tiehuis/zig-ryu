@@ -85,7 +85,7 @@ pub inline fn ceil_log2pow5(x: u32) u32 {
 /// Returns true if 2^p | x for some integer p.
 pub inline fn multipleOfPowerOf2(x: u64, p: u32) bool {
     std.debug.assert(x != 0);
-    return x & ((@as(u64, 1) << @intCast(u6, p)) - 1) == 0; // Maybe @ctzll
+    return x & (std.math.shl(u64, 1, p) -% 1) == 0;
 }
 
 /// Returns the number of factors of 5 in x.

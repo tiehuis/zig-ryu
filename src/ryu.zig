@@ -74,6 +74,7 @@ test "all" {
     _ = @import("ryu64/test_shortest.zig");
     _ = @import("ryu64/test_fixed.zig");
     _ = @import("ryu64/test_scientific.zig");
+    _ = @import("ryu64/parse.zig");
 
     _ = @import("ryu32/test_shortest.zig");
 }
