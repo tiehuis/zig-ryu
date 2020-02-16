@@ -18,11 +18,10 @@ Requires `sh`, `make`, `cmake`, `c++`, `zig`
 
 ## Todo
 
- - [ ] Review all manual casts
  - [x] Make more idiomatic
  - [x] Add f16 variant
  - [x] Add f128 variant (Use partial table set)
- - [ ] Add specified precision argument (current errol does this after but this is
+ - [x] Add specified precision argument (current errol does this after but this is
    slows things down a fair bit).
  - [x] Benchmark against current float printing code (memory
    consumption/performance).
