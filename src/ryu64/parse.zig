@@ -144,7 +144,7 @@ pub fn parse(s: []const u8) ParseError!f64 {
     }
 
     // Compute the final IEEE exponent
-    const ieee_e2: i32 = std.math.max(0, e2 + DOUBLE_BIAS + @intCast(i32, floor_log2(m2)));
+    var ieee_e2: i32 = std.math.max(0, e2 + DOUBLE_BIAS + @intCast(i32, floor_log2(m2)));
 
     if (ieee_e2 > 0x7fe) {
         // Final IEEE exponent is larger than the maximum representable, +-infinity
@@ -170,7 +170,7 @@ pub fn parse(s: []const u8) ParseError!f64 {
     var ieee_m2 = (m2 >> @intCast(u6, shift)) + @boolToInt(round_up);
     if (ieee_m2 == (1 << (DOUBLE_MANTISSA_BITS + 1))) {
         // Due to how the IEEE represents +-inf, we don't need to check for overflow here
-        ieee_m2 += 1;
+        ieee_e2 += 1;
     }
     ieee_m2 &= (1 << DOUBLE_MANTISSA_BITS) - 1;
 
@@ -182,7 +182,20 @@ fn expectParse(expected: f64, x: []const u8) void {
     std.testing.expectEqual(parse(x) catch unreachable, expected);
 }
 
-test "bad input" {}
+fn expectError(expected: anyerror, x: []const u8) void {
+    std.testing.expectError(expected, parse(x));
+}
+
+test "bad input" {
+    expectError(error.Malformed, "x");
+    expectError(error.Malformed, "1..1");
+    expectError(error.Malformed, "..");
+    expectError(error.Malformed, "1ee1");
+    expectError(error.Malformed, "1e.1");
+    expectError(error.TooShort, "");
+    expectError(error.TooLong, "123456789012345678");
+    expectError(error.TooLong, "1e12345");
+}
 
 test "basic" {
     expectParse(0.0, "0");
@@ -207,10 +220,6 @@ test "min/max" {
 }
 
 test "mantissa rounding overflow" {
-    if (true) {
-        return error.SkipZigTest;
-    }
-
     // This results in binary mantissa that is all ones and requires rounding up
     // because it is closer to 1 than to the next smaller float. This is a
     // regression test that the mantissa overflow is handled correctly by
