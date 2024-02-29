@@ -39,16 +39,13 @@ pub fn panic(format: []const u8, trace: ?*std.builtin.StackTrace, ret_addr: ?usi
 
 // wrapper functions
 
-const debug = false;
-
 pub const Format = enum {
-    shortest, // shortest implies scientific
     scientific,
     decimal,
 };
 
 pub const FormatOptions = struct {
-    mode: Format = .shortest,
+    mode: Format = .scientific,
     precision: ?usize = null,
 };
 
@@ -61,7 +58,7 @@ pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) []const u8 {
     const d = ryu128_btod(@as(I, @bitCast(v)), std.math.floatMantissaBits(T), std.math.floatExponentBits(T), has_explicit_leading_bit);
 
     return switch (options.mode) {
-        .shortest, .scientific => ryu128_scientific(buf, d, options.precision),
+        .scientific => ryu128_scientific(buf, d, options.precision),
         .decimal => ryu128_decimal(buf, d, options.precision),
     };
 }
@@ -85,6 +82,23 @@ fn copySpecialStr(buf: []u8, f: FloatDecimal128) []const u8 {
     const offset: usize = @intFromBool(f.sign);
     @memcpy(buf[offset..][0..8], "Infinity");
     return buf[0 .. 8 + offset];
+}
+
+// Write count digits from output (lsb first) to buf.
+inline fn writeDecimal(buf: []u8, output: anytype, count: usize) void {
+    // assert output is pointer to int
+    for (0..count) |i| {
+        const c: u8 = @intCast(output.* % 10);
+        output.* /= 10;
+        buf[count - i - 1] = '0' + c;
+    }
+}
+
+// Write count 0's to buf.
+inline fn writeZeros(buf: []u8, count: usize) void {
+    for (0..count) |i| {
+        buf[i] = '0';
+    }
 }
 
 pub const RoundMode = enum {
@@ -246,77 +260,48 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
     var output = f.mantissa;
     const olength = decimalLength(output);
 
-    var offset = f.exponent + cast_i32(olength);
-    // 0.00000001
+    const offset = f.exponent + cast_i32(olength);
     if (offset <= 0) {
-        // Check if precision is 0, if so we shouldn't print the following, special case?
+        // 0.00000001
         buf[index] = '0';
         buf[index + 1] = '.';
         index += 2;
         const dp_index = index;
 
-        while (offset < 0) : (offset += 1) {
-            buf[index] = '0';
-            index += 1;
-        }
-        for (0..olength) |i| {
-            const c: u8 = @intCast(output % 10);
-            output /= 10;
-            buf[index + olength - i - 1] = '0' + c;
-        }
+        const poffset: u32 = @intCast(-offset);
+        writeZeros(buf[index..], poffset);
+        index += poffset;
+        writeDecimal(buf[index..], &output, olength);
         index += olength;
 
         if (precision) |prec| {
             index = dp_index + prec;
         }
     } else {
-        const uoffset: usize = @intCast(offset);
         // 12345000000
+        const uoffset: usize = @intCast(offset);
         if (uoffset >= olength) {
-            for (0..olength) |i| {
-                const c: u8 = @intCast(output % 10);
-                output /= 10;
-                buf[index + olength - i - 1] = '0' + c;
-            }
+            writeDecimal(buf[index..], &output, olength);
             index += olength;
-            for (0..uoffset - olength) |_| {
-                buf[index] = '0';
-                index += 1;
-            }
+            writeZeros(buf[index..], uoffset - olength);
+            index += uoffset - olength;
+
             if (precision) |prec| {
                 buf[index] = '.';
                 index += 1;
-                for (0..prec) |i| {
-                    buf[index + i] = '0';
-                }
+                writeZeros(buf[index..], prec);
                 index += prec;
             }
         } else {
             // 12345.12345
-
-            // Fractional
-            for (uoffset..olength) |i| {
-                const c: u8 = @intCast(output % 10);
-                output /= 10;
-                buf[index + olength - i + uoffset] = '0' + c;
-            }
-
+            writeDecimal(buf[index + uoffset + 1 ..], &output, olength - uoffset);
             buf[index + uoffset] = '.';
             const dp_index = index + uoffset + 1;
-
-            // Integer
-            for (0..uoffset) |i| {
-                const c: u8 = @intCast(output % 10);
-                output /= 10;
-                buf[index + uoffset - i - 1] = '0' + c;
-            }
+            writeDecimal(buf[index..], &output, uoffset);
             index += olength + 1;
 
             if (precision) |prec| {
-                for ((olength - uoffset)..prec) |_| {
-                    buf[index] = '0';
-                    index += 1;
-                }
+                writeZeros(buf[index..], prec - (olength - uoffset));
                 index = dp_index + prec;
             }
         }
