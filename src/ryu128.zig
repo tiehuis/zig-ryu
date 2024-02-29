@@ -84,7 +84,8 @@ fn copySpecialStr(buf: []u8, f: FloatDecimal128) []const u8 {
     return buf[0 .. 8 + offset];
 }
 
-// Write count digits from output (lsb first) to buf.
+// Write count digits from output (msb first) to buf. This writes from
+// the tail end of output and modifies output.
 inline fn writeDecimal(buf: []u8, output: anytype, count: usize) void {
     // assert output is pointer to int
     for (0..count) |i| {
@@ -185,11 +186,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     var output = f.mantissa;
     const olength = decimalLength(output);
 
-    for (0..olength - 1) |i| {
-        const c: u8 = @intCast(output % 10);
-        output /= 10;
-        buf[index + olength - i] = '0' + c;
-    }
+    writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
 
     if (olength > 1) {
@@ -205,11 +202,9 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
             index += 1;
         }
 
-        var c = olength - 1;
-        while (c < prec) : (c += 1) {
-            buf[index] = '0';
-            index += 1;
-        }
+        const len = prec - (olength - 1);
+        writeZeros(buf[index..], len);
+        index += len;
     }
 
     buf[index] = 'e';
@@ -219,15 +214,17 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         buf[index] = '-';
         index += 1;
         exp = -exp;
+    } else {
+        buf[index] = '+'; // Optional, added for fuzzing
+        index += 1;
     }
     var uexp: u32 = @intCast(exp);
-
     const elength = decimalLength(uexp);
-    for (0..elength) |i| {
-        const c: u8 = @intCast(uexp % 10);
-        uexp /= 10;
-        buf[index + elength - 1 - i] = '0' + c;
+    if (elength == 1) {
+        buf[index] = '0'; // Optional (pad to 2 char), added for fuzzing
+        index += 1;
     }
+    writeDecimal(buf[index..], &uexp, elength);
     index += elength;
 
     return buf[0..index];
