@@ -1,11 +1,22 @@
 const std = @import("std");
 
 fn checkRound(comptime T: type, f: T, precision: usize) !void {
-    var buf: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
+    var buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const ryu_dec = ryu128_format(&buf1, f, .{ .mode = .decimal, .precision = precision });
 
-    const rrr = ryu128_format(&buf, f, .{ .mode = .decimal, .precision = precision });
+    var buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
+    const ryu_exp = ryu128_format(&buf2, f, .{ .mode = .scientific, .precision = precision });
 
-    std.debug.print("precision={}, std={d:.5}, ryu={s}\n", .{ precision, f, rrr });
+    std.debug.print(
+        \\# Precision: {}
+        \\std_dec: {d:.5}
+        \\ryu_dec: {s}
+        \\
+        \\std_exp: {e:.5}
+        \\ryu_exp: {s}
+        \\
+        \\
+    , .{ precision, f, ryu_dec, f, ryu_exp });
 }
 
 test "round-trip" {
@@ -50,8 +61,8 @@ pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) []const u8 {
     const d = ryu128_btod(@as(I, @bitCast(v)), std.math.floatMantissaBits(T), std.math.floatExponentBits(T), has_explicit_leading_bit);
 
     return switch (options.mode) {
-        .shortest, .scientific => ryu128_scientific(buf, d, options),
-        .decimal => ryu128_decimal(buf, d, options),
+        .shortest, .scientific => ryu128_scientific(buf, d, options.precision),
+        .decimal => ryu128_decimal(buf, d, options.precision),
     };
 }
 
@@ -124,13 +135,6 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
             if (decimalLength(output) != nlength - 1) {
                 output /= 10;
                 exp += 1;
-
-                // Shouldn't be strictly required but decimal code-path does not like
-                // non-normalized values (trailing zeros).
-                while (output != 0 and output % 10 == 0) {
-                    output /= 10;
-                    exp += 1;
-                }
             }
         }
     }
@@ -145,7 +149,7 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
 const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
 
 // Write a FloatDecimal128 in scientific form to a buffer.
-pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, options: FormatOptions) []const u8 {
+pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
@@ -153,7 +157,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, options: Forma
         return copySpecialStr(buf, f);
     }
 
-    if (options.precision) |prec| {
+    if (precision) |prec| {
         f = ryu128_round(f, .scientific, prec);
     }
 
@@ -181,7 +185,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, options: Forma
         index += 1;
     }
 
-    if (options.precision) |prec| {
+    if (precision) |prec| {
         if (olength == 1) {
             buf[index] = '.';
             index += 1;
@@ -217,12 +221,10 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, options: Forma
 
 // In order to keep the buffer compact, we store either the count of leading zeros and/or the
 // count of trailing zeros.
-const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 53;
+const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4932 + 53;
 
 // Write a FloatDecimal128 in decimal form to a buffer.
-//
-// TODO: This may require a lot of buffer size for large normals of f128.
-pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, options: FormatOptions) []const u8 {
+pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
@@ -230,7 +232,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, options: FormatOp
         return copySpecialStr(buf, f);
     }
 
-    if (options.precision) |prec| {
+    if (precision) |prec| {
         f = ryu128_round(f, .decimal, prec);
     }
 
@@ -264,7 +266,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, options: FormatOp
         }
         index += olength;
 
-        if (options.precision) |prec| {
+        if (precision) |prec| {
             index = dp_index + prec;
         }
     } else {
@@ -281,7 +283,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, options: FormatOp
                 buf[index] = '0';
                 index += 1;
             }
-            if (options.precision) |prec| {
+            if (precision) |prec| {
                 buf[index] = '.';
                 index += 1;
                 for (0..prec) |i| {
@@ -291,26 +293,30 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, options: FormatOp
             }
         } else {
             // 12345.12345
-            for (0..uoffset) |i| {
-                const c: u8 = @intCast(output % 10); // incorrect, need leading digit not trailing
-                output /= 10;
-                buf[index + olength - i - 1] = '0' + c;
-            }
 
-            index += uoffset;
-            buf[index] = '.';
-            index += 1;
-            const dp_index = index;
-
+            // Fractional
             for (uoffset..olength) |i| {
                 const c: u8 = @intCast(output % 10);
                 output /= 10;
-                buf[index + olength - i - 1] = '0' + c;
+                buf[index + olength - i + uoffset] = '0' + c;
             }
-            index += olength - uoffset;
 
-            if (options.precision) |prec| {
-                std.debug.print("TEST2: {}\n", .{prec});
+            buf[index + uoffset] = '.';
+            const dp_index = index + uoffset + 1;
+
+            // Integer
+            for (0..uoffset) |i| {
+                const c: u8 = @intCast(output % 10);
+                output /= 10;
+                buf[index + uoffset - i - 1] = '0' + c;
+            }
+            index += olength + 1;
+
+            if (precision) |prec| {
+                for ((olength - uoffset)..prec) |_| {
+                    buf[index] = '0';
+                    index += 1;
+                }
                 index = dp_index + prec;
             }
         }
