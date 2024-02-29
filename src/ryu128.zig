@@ -1,32 +1,116 @@
 const std = @import("std");
 
-fn checkRound(comptime T: type, f: T, precision: usize) !void {
-    var buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const ryu_dec = ryu128_format(&buf1, f, .{ .mode = .decimal, .precision = precision });
+fn toString(comptime precision: anytype) []const u8 {
+    std.debug.assert(precision < 100);
+    var pbuf: [2]u8 = undefined;
+    if (precision > 10) {
+        pbuf[0] = ((precision / 10) % 10) + '0';
+        pbuf[1] = (precision % 10) + '0';
+        return pbuf[0..2];
+    } else {
+        pbuf[0] = (precision % 10) + '0';
+        return pbuf[0..1];
+    }
+}
 
-    var buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
-    const ryu_exp = ryu128_format(&buf2, f, .{ .mode = .scientific, .precision = precision });
+fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
+    const precision_string = comptime toString(precision);
+
+    var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+
+    var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
+    var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
+    const ryu_exp = ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
+
+    var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
+
+    var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
 
     std.debug.print(
-        \\# Precision: {}
-        \\std_dec: {d:.5}
+        \\# precision:    {}
+        \\# ryu_shortest: {s}
+        \\
+        \\std_dec: {s}
         \\ryu_dec: {s}
         \\
-        \\std_exp: {e:.5}
+        \\std_exp: {s}
         \\ryu_exp: {s}
         \\
         \\
-    , .{ precision, f, ryu_dec, f, ryu_exp });
+    , .{ precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
 }
 
 test "round-trip" {
-    //try roundTrip(f128, u128, 170135019233645109897966048701273983376);
-    try checkRound(f64, 302.456789e10, 5);
-    try checkRound(f64, 0.12999, 5);
+    try checkRound(f32, @as(f32, @bitCast(@as(u32, 431064))), 3);
 
-    try checkRound(f64, 123e-40, 5);
-    try checkRound(f32, 0, 5);
-    try checkRound(f32, 9.9999, 5);
+    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 15259))), 0);
+    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 6955))), 3);
+    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 4121))), 3);
+    //try checkRound(f32, @as(f32, @bitCast(@as(u32, 7137))), 3);
+
+    //try roundTrip(f128, u128, 170135019233645109897966048701273983376);
+    //try checkRound(f64, 302.456789e10, 5);
+    //try checkRound(f64, 0.12999, 5);
+
+    //try checkRound(f64, 123e-40, 5);
+    //try checkRound(f32, 0, 5);
+    //try checkRound(f32, 9.9999, 5);
+}
+
+const std_compat = true;
+
+pub fn main() !void {
+    const F = f32;
+    const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(F) } });
+
+    inline for (3..4) |precision| {
+        const precision_string = comptime toString(precision);
+
+        var i: I = 0;
+        while (true) : (i += 1) {
+            const f: F = @bitCast(i);
+            if (i % 100_000 == 0) {
+                std.debug.print("{}\n", .{i});
+            }
+
+            var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+            const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+
+            var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+            const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
+            var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
+            const ryu_exp = ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
+
+            var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+            const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
+
+            var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+            const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
+
+            if (!std.mem.eql(u8, ryu_dec, std_dec) or !std.mem.eql(u8, ryu_exp, std_exp)) {
+                std.debug.print(
+                    \\# bits:         {}
+                    \\# precision:    {}
+                    \\# ryu_shortest: {s}
+                    \\
+                    \\std_dec: {s}
+                    \\ryu_dec: {s}
+                    \\
+                    \\std_exp: {s}
+                    \\ryu_exp: {s}
+                    \\
+                    \\
+                , .{ i, precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
+                //break;
+            }
+
+            if (i == std.math.maxInt(I)) break;
+        }
+    }
 }
 
 pub fn panic(format: []const u8, trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
@@ -72,16 +156,16 @@ pub const FloatDecimal128 = struct {
 };
 
 fn copySpecialStr(buf: []u8, f: FloatDecimal128) []const u8 {
-    if (f.mantissa != 0) {
-        @memcpy(buf[0..3], "NaN");
-        return buf[0..3];
-    }
     if (f.sign) {
         buf[0] = '-';
     }
     const offset: usize = @intFromBool(f.sign);
-    @memcpy(buf[offset..][0..8], "Infinity");
-    return buf[0 .. 8 + offset];
+    if (f.mantissa != 0) {
+        @memcpy(buf[offset..][0..3], "nan");
+        return buf[0 .. 3 + offset];
+    }
+    @memcpy(buf[offset..][0..3], "inf");
+    return buf[0 .. 3 + offset];
 }
 
 // Write count digits from output (msb first) to buf. This writes from
@@ -142,12 +226,16 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
             nlength -= 1;
         }
 
+        // std performs round to even (e.g. if last is 75, round to 80, 65 to 60)
         if (output % 10 >= 5) {
-            output = (output / 10) + 1;
+            output /= 10;
+            output += 1;
+            // TODO: If the very last digit in the representation is a 5 and we could go either way,
+            // round to the nearest even.
             exp += 1;
 
             // e.g. 9999 -> 10000
-            if (decimalLength(output) != nlength - 1) {
+            if (isPowerOf10(output)) {
                 output /= 10;
                 exp += 1;
             }
@@ -159,6 +247,14 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
         .exponent = exp,
         .sign = f.sign,
     };
+}
+
+inline fn isPowerOf10(n_: u128) bool {
+    var n = n_;
+    while (n != 0) : (n /= 10) {
+        if (n % 10 != 0) return false;
+    }
+    return true;
 }
 
 const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
@@ -189,8 +285,10 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
 
+    var dp_index: usize = 0;
     if (olength > 1) {
         buf[index + 1] = '.';
+        dp_index = index + 2; // Simplify
         index += olength + 1;
     } else {
         index += 1;
@@ -199,12 +297,18 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     if (precision) |prec| {
         if (olength == 1) {
             buf[index] = '.';
+            dp_index = index + 1;
             index += 1;
         }
 
-        const len = prec - (olength - 1);
-        writeZeros(buf[index..], len);
-        index += len;
+        // std omits trailing zeros if only zeros, perhaps olength == 1 ignore this or is std wrong?
+        if (prec > olength - 1) {
+            const len = prec - (olength - 1);
+            writeZeros(buf[index..], len);
+            index += len;
+        } else {
+            index = dp_index + prec - @intFromBool(prec == 0);
+        }
     }
 
     buf[index] = 'e';
@@ -214,13 +318,13 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         buf[index] = '-';
         index += 1;
         exp = -exp;
-    } else {
+    } else if (std_compat) {
         buf[index] = '+'; // Optional, added for fuzzing
         index += 1;
     }
     var uexp: u32 = @intCast(exp);
     const elength = decimalLength(uexp);
-    if (elength == 1) {
+    if (elength == 1 and std_compat) {
         buf[index] = '0'; // Optional (pad to 2 char), added for fuzzing
         index += 1;
     }
@@ -272,7 +376,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         index += olength;
 
         if (precision) |prec| {
-            index = dp_index + prec;
+            index = dp_index + prec - @intFromBool(prec == 0);
         }
     } else {
         // 12345000000
@@ -284,10 +388,12 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
             index += uoffset - olength;
 
             if (precision) |prec| {
-                buf[index] = '.';
-                index += 1;
-                writeZeros(buf[index..], prec);
-                index += prec;
+                if (prec != 0) {
+                    buf[index] = '.';
+                    index += 1;
+                    writeZeros(buf[index..], prec);
+                    index += prec;
+                }
             }
         } else {
             // 12345.12345
@@ -299,7 +405,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
 
             if (precision) |prec| {
                 writeZeros(buf[index..], prec - (olength - uoffset));
-                index = dp_index + prec;
+                index = dp_index + prec - @intFromBool(prec == 0);
             }
         }
     }
