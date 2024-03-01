@@ -160,6 +160,15 @@ pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) []const u8 {
 
 // core implementation
 
+// This is pretty large. This needs to handle very small floats at full precision,
+// e.g. 1e-4966, which would contain 4968 chars.
+//
+// Open question on precision truncation as well. Do we have bounds configured in
+// zig for this? Can we bound to e.g. 53 and call it a day?
+const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4966 + 53;
+const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
+const RYU128_SPECIAL_EXPONENT = 0x7fffffff;
+
 pub const FloatDecimal128 = struct {
     mantissa: u128,
     exponent: i32,
@@ -181,11 +190,10 @@ fn copySpecialStr(buf: []u8, f: FloatDecimal128) []const u8 {
 
 // Write count digits from output (msb first) to buf. This writes from
 // the tail end of output and modifies output.
-inline fn writeDecimal(buf: []u8, output: anytype, count: usize) void {
-    // assert output is pointer to int
+inline fn writeDecimal(buf: []u8, value: anytype, count: usize) void {
     for (0..count) |i| {
-        const c: u8 = @intCast(output.* % 10);
-        output.* /= 10;
+        const c: u8 = @intCast(value.* % 10);
+        value.* /= 10;
         buf[count - i - 1] = '0' + c;
     }
 }
@@ -195,6 +203,14 @@ inline fn writeZeros(buf: []u8, count: usize) void {
     for (0..count) |i| {
         buf[i] = '0';
     }
+}
+
+inline fn isPowerOf10(n_: u128) bool {
+    var n = n_;
+    while (n != 0) : (n /= 10) {
+        if (n % 10 != 0) return false;
+    }
+    return true;
 }
 
 pub const RoundMode = enum {
@@ -257,22 +273,12 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
     };
 }
 
-inline fn isPowerOf10(n_: u128) bool {
-    var n = n_;
-    while (n != 0) : (n /= 10) {
-        if (n % 10 != 0) return false;
-    }
-    return true;
-}
-
-const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
-
 // Write a FloatDecimal128 in scientific form to a buffer.
 pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
-    if (f.exponent == 0x7fffffff) {
+    if (f.exponent == RYU128_SPECIAL_EXPONENT) {
         return copySpecialStr(buf, f);
     }
 
@@ -333,16 +339,12 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     return buf[0..index];
 }
 
-// In order to keep the buffer compact, we store either the count of leading zeros and/or the
-// count of trailing zeros.
-const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4932 + 53;
-
 // Write a FloatDecimal128 in decimal form to a buffer.
 pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
-    if (f.exponent == 0x7fffffff) {
+    if (f.exponent == RYU128_SPECIAL_EXPONENT) {
         return copySpecialStr(buf, f);
     }
 
@@ -368,9 +370,9 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         index += 2;
         const dp_index = index;
 
-        const poffset: u32 = @intCast(-dp_offset);
-        writeZeros(buf[index..], poffset);
-        index += poffset;
+        const dp_poffset: u32 = @intCast(-dp_offset);
+        writeZeros(buf[index..], dp_poffset);
+        index += dp_poffset;
         writeDecimal(buf[index..], &output, olength);
         index += olength;
 
