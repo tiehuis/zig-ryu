@@ -21,6 +21,8 @@ fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
 
     var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+    var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+    const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
 
     var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
@@ -35,6 +37,7 @@ fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
     if (!std.mem.eql(u8, ryu_dec, std_dec) or !std.mem.eql(u8, ryu_exp, std_exp)) {
         std.debug.print(
             \\# precision:    {}
+            \\# std_shortest: {s}
             \\# ryu_shortest: {s}
             \\
             \\std_dec: {s}
@@ -44,11 +47,13 @@ fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
             \\ryu_exp: {s}
             \\
             \\
-        , .{ precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
+        , .{ precision, std_shortest, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
     }
 }
 
 test "round-trip" {
+    try checkRound(f16, @bitCast(@as(u16, 15361)), 2);
+    try checkRound(f16, @bitCast(@as(u16, 5145)), 4);
     try checkRound(f32, @bitCast(@as(u32, 431064)), 3);
 
     try checkRound(f16, @bitCast(@as(u16, 15259)), 0);
@@ -83,6 +88,8 @@ pub fn main() !void {
 
             var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+            var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
+            const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
 
             var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
@@ -98,16 +105,17 @@ pub fn main() !void {
                 std.debug.print(
                     \\# bits:         {}
                     \\# precision:    {}
+                    \\# std_shortest: {s}
                     \\# ryu_shortest: {s}
+                    \\|
+                    \\| std_dec: {s}
+                    \\| ryu_dec: {s}
+                    \\|
+                    \\| std_exp: {s}
+                    \\| ryu_exp: {s}
+                    \\===================
                     \\
-                    \\std_dec: {s}
-                    \\ryu_dec: {s}
-                    \\
-                    \\std_exp: {s}
-                    \\ryu_exp: {s}
-                    \\
-                    \\
-                , .{ i, precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
+                , .{ i, precision, std_shortest, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
                 //break;
             }
 
@@ -229,12 +237,9 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
             nlength -= 1;
         }
 
-        // std performs round to even (e.g. if last is 75, round to 80, 65 to 60)
         if (output % 10 >= 5) {
             output /= 10;
             output += 1;
-            // TODO: If the very last digit in the representation is a 5 and we could go either way,
-            // round to the nearest even.
             exp += 1;
 
             // e.g. 9999 -> 10000
@@ -379,6 +384,10 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         index += olength;
 
         if (precision) |prec| {
+            const dp_written = index - dp_index;
+            if (prec > dp_written) {
+                writeZeros(buf[index..], prec - dp_written);
+            }
             index = dp_index + prec - @intFromBool(prec == 0);
         }
     } else {
@@ -407,7 +416,10 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
             index += olength + 1;
 
             if (precision) |prec| {
-                writeZeros(buf[index..], prec - (olength - uoffset));
+                const dp_written = olength - uoffset;
+                if (prec > dp_written) {
+                    writeZeros(buf[index..], prec - dp_written);
+                }
                 index = dp_index + prec - @intFromBool(prec == 0);
             }
         }
