@@ -290,26 +290,16 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     var output = f.mantissa;
     const olength = decimalLength(output);
 
+    // 1.12345
     writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
-
-    var dp_index: usize = 0;
-    if (olength > 1) {
-        buf[index + 1] = '.';
-        dp_index = index + 2; // Simplify
-        index += olength + 1;
-    } else {
-        index += 1;
-    }
+    buf[index + 1] = '.';
+    index += 2;
+    const dp_index = index;
+    if (olength > 1) index += olength - 1;
 
     if (precision) |prec| {
-        if (olength == 1) {
-            buf[index] = '.';
-            dp_index = index + 1;
-            index += 1;
-        }
-
-        // std omits trailing zeros if only zeros, perhaps olength == 1 ignore this or is std wrong?
+        // std omits trailing zeros if only zeros (olength == 1)
         if (prec > olength - 1) {
             const len = prec - (olength - 1);
             writeZeros(buf[index..], len);
@@ -319,6 +309,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         }
     }
 
+    // e100
     buf[index] = 'e';
     index += 1;
     var exp = f.exponent + @as(i32, @intCast(olength)) - 1;
@@ -332,7 +323,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     }
     var uexp: u32 = @intCast(exp);
     const elength = decimalLength(uexp);
-    if (elength == 1 and std_compat) {
+    if (std_compat and elength == 1) {
         buf[index] = '0'; // Optional (pad to 2 char), added for fuzzing
         index += 1;
     }
@@ -369,15 +360,15 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
     var output = f.mantissa;
     const olength = decimalLength(output);
 
-    const offset = f.exponent + cast_i32(olength);
-    if (offset <= 0) {
-        // 0.00000001
+    const dp_offset = f.exponent + cast_i32(olength);
+    if (dp_offset <= 0) {
+        // 0.000001234
         buf[index] = '0';
         buf[index + 1] = '.';
         index += 2;
         const dp_index = index;
 
-        const poffset: u32 = @intCast(-offset);
+        const poffset: u32 = @intCast(-dp_offset);
         writeZeros(buf[index..], poffset);
         index += poffset;
         writeDecimal(buf[index..], &output, olength);
@@ -391,13 +382,13 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
             index = dp_index + prec - @intFromBool(prec == 0);
         }
     } else {
-        // 12345000000
-        const uoffset: usize = @intCast(offset);
-        if (uoffset >= olength) {
+        // 123456000
+        const dp_uoffset: usize = @intCast(dp_offset);
+        if (dp_uoffset >= olength) {
             writeDecimal(buf[index..], &output, olength);
             index += olength;
-            writeZeros(buf[index..], uoffset - olength);
-            index += uoffset - olength;
+            writeZeros(buf[index..], dp_uoffset - olength);
+            index += dp_uoffset - olength;
 
             if (precision) |prec| {
                 if (prec != 0) {
@@ -408,15 +399,15 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
                 }
             }
         } else {
-            // 12345.12345
-            writeDecimal(buf[index + uoffset + 1 ..], &output, olength - uoffset);
-            buf[index + uoffset] = '.';
-            const dp_index = index + uoffset + 1;
-            writeDecimal(buf[index..], &output, uoffset);
+            // 12345.6789
+            writeDecimal(buf[index + dp_uoffset + 1 ..], &output, olength - dp_uoffset);
+            buf[index + dp_uoffset] = '.';
+            const dp_index = index + dp_uoffset + 1;
+            writeDecimal(buf[index..], &output, dp_uoffset);
             index += olength + 1;
 
             if (precision) |prec| {
-                const dp_written = olength - uoffset;
+                const dp_written = olength - dp_uoffset;
                 if (prec > dp_written) {
                     writeZeros(buf[index..], prec - dp_written);
                 }
