@@ -1,3 +1,6 @@
+// implement round-to-even
+// behaviour difference in trailing zeros on decimal (if all 0's)
+
 const std = @import("std");
 
 fn toString(comptime precision: anytype) []const u8 {
@@ -26,39 +29,40 @@ fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
 
     var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
-
     var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
 
-    std.debug.print(
-        \\# precision:    {}
-        \\# ryu_shortest: {s}
-        \\
-        \\std_dec: {s}
-        \\ryu_dec: {s}
-        \\
-        \\std_exp: {s}
-        \\ryu_exp: {s}
-        \\
-        \\
-    , .{ precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
+    if (!std.mem.eql(u8, ryu_dec, std_dec) or !std.mem.eql(u8, ryu_exp, std_exp)) {
+        std.debug.print(
+            \\# precision:    {}
+            \\# ryu_shortest: {s}
+            \\
+            \\std_dec: {s}
+            \\ryu_dec: {s}
+            \\
+            \\std_exp: {s}
+            \\ryu_exp: {s}
+            \\
+            \\
+        , .{ precision, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
+    }
 }
 
 test "round-trip" {
-    try checkRound(f32, @as(f32, @bitCast(@as(u32, 431064))), 3);
+    try checkRound(f32, @bitCast(@as(u32, 431064)), 3);
 
-    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 15259))), 0);
-    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 6955))), 3);
-    //try checkRound(f16, @as(f16, @bitCast(@as(u16, 4121))), 3);
-    //try checkRound(f32, @as(f32, @bitCast(@as(u32, 7137))), 3);
+    try checkRound(f16, @bitCast(@as(u16, 15259)), 0);
+    try checkRound(f16, @bitCast(@as(u16, 6955)), 3);
+    try checkRound(f16, @bitCast(@as(u16, 4121)), 3);
+    try checkRound(f32, @bitCast(@as(u32, 7137)), 3);
 
-    //try roundTrip(f128, u128, 170135019233645109897966048701273983376);
-    //try checkRound(f64, 302.456789e10, 5);
-    //try checkRound(f64, 0.12999, 5);
+    //try checkRound(f128, u128, 170135019233645109897966048701273983376);
+    try checkRound(f64, 302.456789e10, 5);
+    try checkRound(f64, 0.12999, 5);
 
-    //try checkRound(f64, 123e-40, 5);
-    //try checkRound(f32, 0, 5);
-    //try checkRound(f32, 9.9999, 5);
+    try checkRound(f64, 123e-40, 5);
+    try checkRound(f32, 0, 5);
+    try checkRound(f32, 9.9999, 5);
 }
 
 const std_compat = true;
@@ -87,7 +91,6 @@ pub fn main() !void {
 
             var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
-
             var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
 
