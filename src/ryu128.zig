@@ -68,6 +68,8 @@ test "round-trip" {
     try checkRound(f64, 123e-40, 5);
     try checkRound(f32, 0, 5);
     try checkRound(f32, 9.9999, 5);
+
+    try checkRound(f32, @bitCast(@as(u32, 0)), 5);
 }
 
 const std_compat = true;
@@ -233,10 +235,8 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
                 round_digit = (olength - 1) + precision + @as(usize, @intCast(f.exponent));
             } else {
                 const min_exp_required = @as(usize, @intCast(-f.exponent));
-                if (olength > min_exp_required) {
-                    round_digit = precision + (olength - min_exp_required);
-                } else if (precision > min_exp_required - olength) {
-                    round_digit = precision - (min_exp_required - olength);
+                if (precision + olength > min_exp_required) {
+                    round_digit = precision + olength - min_exp_required;
                 }
             }
         },
@@ -319,7 +319,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     if (olength > 1) index += olength - 1 else index -= 1;
 
     if (precision) |prec| {
-        // std omits trailing zeros if only zeros (olength == 1)
+        index += @intFromBool(olength == 1);
         if (prec > olength - 1) {
             const len = prec - (olength - 1);
             writeZeros(buf[index..], len);
