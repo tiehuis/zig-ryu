@@ -20,14 +20,14 @@ fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
     const precision_string = comptime toString(precision);
 
     var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+    const ryu_shortest = try ryu128_format(&ryu_buf3, f, .{});
     var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
 
     var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
+    const ryu_dec = try ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
     var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
-    const ryu_exp = ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
+    const ryu_exp = try ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
 
     var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
     const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
@@ -87,14 +87,14 @@ pub fn main() !void {
             }
 
             var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const ryu_shortest = ryu128_format(&ryu_buf3, f, .{});
+            const ryu_shortest = try ryu128_format(&ryu_buf3, f, .{});
             var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
 
             var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const ryu_dec = ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
+            const ryu_dec = try ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
             var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
-            const ryu_exp = ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
+            const ryu_exp = try ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
 
             var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
             const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
@@ -134,6 +134,17 @@ pub fn panic(format: []const u8, trace: ?*std.builtin.StackTrace, ret_addr: ?usi
 
 // wrapper functions
 
+// Full precision only.
+const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4971;
+// Full precision only.
+const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
+const RYU128_SPECIAL_EXPONENT = 0x7fffffff;
+
+// See ryu128_scientific and ryu128_decimal for choosing an appropriate buffer size.
+const RyuError = error{
+    BufferTooSmall,
+};
+
 pub const Format = enum {
     scientific,
     decimal,
@@ -144,7 +155,7 @@ pub const FormatOptions = struct {
     precision: ?usize = null,
 };
 
-pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) []const u8 {
+pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) RyuError![]const u8 {
     const T = @TypeOf(v);
     comptime std.debug.assert(@typeInfo(T) == .Float);
     const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
@@ -157,17 +168,6 @@ pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) []const u8 {
         .decimal => ryu128_decimal(buf, d, options.precision),
     };
 }
-
-// core implementation
-
-// This is pretty large. This needs to handle very small floats at full precision,
-// e.g. 1e-4966, which would contain 4968 chars.
-//
-// Open question on precision truncation as well. Do we have bounds configured in
-// zig for this? Can we bound to e.g. 53 and call it a day?
-const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4966 + 53;
-const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
-const RYU128_SPECIAL_EXPONENT = 0x7fffffff;
 
 pub const FloatDecimal128 = struct {
     mantissa: u128,
@@ -273,8 +273,14 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
     };
 }
 
-// Write a FloatDecimal128 in scientific form to a buffer.
-pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
+/// Write a FloatDecimal128 in scientific form to a buffer.
+///
+/// The buffer provided must be greater than 53 bytes in length. If no precision is specified this function
+/// will never return an error.
+///
+/// If precision is specified, `9 + precision` bytes may be written to the buffer. If the provided buffer is
+/// not larger than this an error will be returned.
+pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
@@ -286,6 +292,17 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         f = ryu128_round(f, .scientific, prec);
     }
 
+    var output = f.mantissa;
+    const olength = decimalLength(output);
+
+    if (precision) |prec| {
+        // bound: sign(1) + leading_digit(1) + point(1) + digits(prec) + exp_sign(1) + exp_max(4)
+        const req_bytes = 8 + prec;
+        if (buf.len < req_bytes) {
+            return error.BufferTooSmall;
+        }
+    }
+
     // Step 5: Print the scientific representation
     var index: usize = 0;
     if (f.sign) {
@@ -293,16 +310,13 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         index += 1;
     }
 
-    var output = f.mantissa;
-    const olength = decimalLength(output);
-
     // 1.12345
     writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
     buf[index + 1] = '.';
     index += 2;
     const dp_index = index;
-    if (olength > 1) index += olength - 1;
+    if (olength > 1) index += olength - 1 else index -= 1;
 
     if (precision) |prec| {
         // std omits trailing zeros if only zeros (olength == 1)
@@ -339,8 +353,23 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
     return buf[0..index];
 }
 
-// Write a FloatDecimal128 in decimal form to a buffer.
-pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) []const u8 {
+/// Write a FloatDecimal128 in decimal form to a buffer.
+///
+/// The buffer provided must be greater than 53 bytes in length. This function may return an error even
+/// if no precision is specified.
+///
+/// If precision is specified, `2 + precision` bytes will always be written.
+///
+/// If precision is not specified, the approximate max buffer size needed to print every representation
+/// for a specific type is:
+///
+///  f16: 13
+///  f32: 50
+///  f64: 329
+/// f128: 4971
+///
+/// These values are based on the minimum subnormal value which will have the longest decimal representation.
+pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
     std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
     var f = f_;
 
@@ -352,15 +381,24 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         f = ryu128_round(f, .decimal, prec);
     }
 
+    var output = f.mantissa;
+    const olength = decimalLength(output);
+
+    // Should be `precision orelse (@abs...)` but the method we use currently
+    // writes out the full string and truncates/returns the slice of the relevant
+    // output so we need to upper bound.
+    // bound: leading_digit(1) + point(1) + max(precision, abs(exponent + length)
+    const req_bytes = 2 + @max(precision orelse 0, (@abs(f.exponent) + olength));
+    if (buf.len < req_bytes) {
+        return error.BufferTooSmall;
+    }
+
     // Step 5: Print the decimal representation
     var index: usize = 0;
     if (f.sign) {
         buf[index] = '-';
         index += 1;
     }
-
-    var output = f.mantissa;
-    const olength = decimalLength(output);
 
     const dp_offset = f.exponent + cast_i32(olength);
     if (dp_offset <= 0) {
@@ -558,6 +596,8 @@ pub fn ryu128_btod(bits: u128, mantissa_bits: u7, exponent_bits: u5, explicit_le
     };
 }
 
+// Is it worth making an alternative version here where we multiple to find the length, for short
+// mantissa? What is the frequency of lengths we get?
 fn decimalLength(v: u128) u32 {
     const LARGEST_POW10 = (@as(u128, 5421010862427522170) << 64) | 687399551400673280;
     var p10 = LARGEST_POW10;
