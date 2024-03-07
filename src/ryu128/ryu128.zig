@@ -1,6 +1,3 @@
-// implement round-to-even
-// behaviour difference in trailing zeros on decimal (if all 0's)
-
 const std = @import("std");
 
 fn toString(comptime precision: anytype) []const u8 {
