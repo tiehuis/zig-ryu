@@ -1,145 +1,14 @@
 const std = @import("std");
 
-fn toString(comptime precision: anytype) []const u8 {
-    std.debug.assert(precision < 100);
-    var pbuf: [2]u8 = undefined;
-    if (precision > 10) {
-        pbuf[0] = ((precision / 10) % 10) + '0';
-        pbuf[1] = (precision % 10) + '0';
-        return pbuf[0..2];
-    } else {
-        pbuf[0] = (precision % 10) + '0';
-        return pbuf[0..1];
-    }
-}
-
-fn checkRound(comptime T: type, f: T, comptime precision: usize) !void {
-    const precision_string = comptime toString(precision);
-
-    var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const ryu_shortest = try ryu128_format(&ryu_buf3, f, .{});
-    var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
-
-    var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const ryu_dec = try ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
-    var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
-    const ryu_exp = try ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
-
-    var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
-    var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-    const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
-
-    if (!std.mem.eql(u8, ryu_dec, std_dec) or !std.mem.eql(u8, ryu_exp, std_exp)) {
-        std.debug.print(
-            \\# precision:    {}
-            \\# std_shortest: {s}
-            \\# ryu_shortest: {s}
-            \\
-            \\std_dec: {s}
-            \\ryu_dec: {s}
-            \\
-            \\std_exp: {s}
-            \\ryu_exp: {s}
-            \\
-            \\
-        , .{ precision, std_shortest, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
-    }
-}
-
-test "round-trip" {
-    try checkRound(f16, @bitCast(@as(u16, 15361)), 2);
-    try checkRound(f16, @bitCast(@as(u16, 5145)), 4);
-    try checkRound(f32, @bitCast(@as(u32, 431064)), 3);
-
-    try checkRound(f16, @bitCast(@as(u16, 15259)), 0);
-    try checkRound(f16, @bitCast(@as(u16, 6955)), 3);
-    try checkRound(f16, @bitCast(@as(u16, 4121)), 3);
-    try checkRound(f32, @bitCast(@as(u32, 7137)), 3);
-
-    //try checkRound(f128, u128, 170135019233645109897966048701273983376);
-    try checkRound(f64, 302.456789e10, 5);
-    try checkRound(f64, 0.12999, 5);
-
-    try checkRound(f64, 123e-40, 5);
-    try checkRound(f32, 0, 5);
-    try checkRound(f32, 9.9999, 5);
-
-    try checkRound(f32, @bitCast(@as(u32, 0)), 5);
-}
-
 const std_compat = true;
 
-pub fn main() !void {
-    const F = f32;
-    const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(F) } });
-
-    inline for (3..4) |precision| {
-        const precision_string = comptime toString(precision);
-
-        var i: I = 0;
-        while (true) : (i += 1) {
-            const f: F = @bitCast(i);
-            if (i % 100_000 == 0) {
-                std.debug.print("{}\n", .{i});
-            }
-
-            var ryu_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const ryu_shortest = try ryu128_format(&ryu_buf3, f, .{});
-            var std_buf3: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const std_shortest = try std.fmt.bufPrint(&std_buf3, "{}", .{f});
-
-            var ryu_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const ryu_dec = try ryu128_format(&ryu_buf1, f, .{ .mode = .decimal, .precision = precision });
-            var ryu_buf2: [RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE]u8 = undefined;
-            const ryu_exp = try ryu128_format(&ryu_buf2, f, .{ .mode = .scientific, .precision = precision });
-
-            var std_buf1: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const std_dec = try std.fmt.bufPrint(&std_buf1, "{d:." ++ precision_string ++ "}", .{f});
-            var std_buf2: [RYU128_MAX_DECIMAL_OUTPUT_SIZE]u8 = undefined;
-            const std_exp = try std.fmt.bufPrint(&std_buf2, "{e:." ++ precision_string ++ "}", .{f});
-
-            if (!std.mem.eql(u8, ryu_dec, std_dec) or !std.mem.eql(u8, ryu_exp, std_exp)) {
-                std.debug.print(
-                    \\# bits:         {}
-                    \\# precision:    {}
-                    \\# std_shortest: {s}
-                    \\# ryu_shortest: {s}
-                    \\|
-                    \\| std_dec: {s}
-                    \\| ryu_dec: {s}
-                    \\|
-                    \\| std_exp: {s}
-                    \\| ryu_exp: {s}
-                    \\===================
-                    \\
-                , .{ i, precision, std_shortest, ryu_shortest, std_dec, ryu_dec, std_exp, ryu_exp });
-                //break;
-            }
-
-            if (i == std.math.maxInt(I)) break;
-        }
-    }
-}
-
-pub fn panic(format: []const u8, trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    _ = format;
-    _ = trace;
-    _ = ret_addr;
-    @setCold(true);
-    while (true) {}
-}
-
-// wrapper functions
-
 // Full precision only.
-const RYU128_MAX_DECIMAL_OUTPUT_SIZE = 4971;
+pub const max_decimal_output_size = 4971;
 // Full precision only.
-const RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE = 53;
-const RYU128_SPECIAL_EXPONENT = 0x7fffffff;
+pub const max_scientific_output_size = 53;
+pub const special_exponent = 0x7fffffff;
 
-// See ryu128_scientific and ryu128_decimal for choosing an appropriate buffer size.
+// See formatScientific and formatDecimal for choosing an appropriate buffer size.
 const RyuError = error{
     BufferTooSmall,
 };
@@ -154,17 +23,17 @@ pub const FormatOptions = struct {
     precision: ?usize = null,
 };
 
-pub fn ryu128_format(buf: []u8, v: anytype, options: FormatOptions) RyuError![]const u8 {
+pub fn format(buf: []u8, v: anytype, options: FormatOptions) RyuError![]const u8 {
     const T = @TypeOf(v);
     comptime std.debug.assert(@typeInfo(T) == .Float);
     const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
 
     const has_explicit_leading_bit = std.math.floatMantissaBits(T) - std.math.floatFractionalBits(T) != 0;
-    const d = ryu128_btod(@as(I, @bitCast(v)), std.math.floatMantissaBits(T), std.math.floatExponentBits(T), has_explicit_leading_bit);
+    const d = binaryToDecimal(@as(I, @bitCast(v)), std.math.floatMantissaBits(T), std.math.floatExponentBits(T), has_explicit_leading_bit);
 
     return switch (options.mode) {
-        .scientific => ryu128_scientific(buf, d, options.precision),
-        .decimal => ryu128_decimal(buf, d, options.precision),
+        .scientific => formatScientific(buf, d, options.precision),
+        .decimal => formatDecimal(buf, d, options.precision),
     };
 }
 
@@ -187,24 +56,33 @@ fn copySpecialStr(buf: []u8, f: FloatDecimal128) []const u8 {
     return buf[0 .. 3 + offset];
 }
 
+// Converts values in the range [0, 100) to a string.
+fn digits2(value: usize) [2]u8 {
+    return ("0001020304050607080910111213141516171819" ++
+        "2021222324252627282930313233343536373839" ++
+        "4041424344454647484950515253545556575859" ++
+        "6061626364656667686970717273747576777879" ++
+        "8081828384858687888990919293949596979899")[value * 2 ..][0..2].*;
+}
+
 // Write count digits from output (msb first) to buf. This writes from
 // the tail end of output and modifies output.
-inline fn writeDecimal(buf: []u8, value: anytype, count: usize) void {
-    for (0..count) |i| {
+fn writeDecimal(buf: []u8, value: anytype, count: usize) void {
+    // ~20% faster (130ns -> 100ns)
+    var i: usize = 0;
+    while (i + 2 <= count) : (i += 2) {
+        const c: u8 = @intCast(value.* % 100);
+        value.* /= 100;
+        @memcpy(buf[count - i - 1 ..][0..2], &digits2(c));
+    }
+    if (i + 1 <= count) {
         const c: u8 = @intCast(value.* % 10);
         value.* /= 10;
         buf[count - i - 1] = '0' + c;
     }
 }
 
-// Write count 0's to buf.
-inline fn writeZeros(buf: []u8, count: usize) void {
-    for (0..count) |i| {
-        buf[i] = '0';
-    }
-}
-
-inline fn isPowerOf10(n_: u128) bool {
+fn isPowerOf10(n_: u128) bool {
     var n = n_;
     while (n != 0) : (n /= 10) {
         if (n % 10 != 0) return false;
@@ -220,7 +98,7 @@ pub const RoundMode = enum {
 };
 
 // Round a FloatDecimal128 to a specific precision using a specific round mode.
-fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 {
+fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 {
     var round_digit: usize = 0;
     var output = f.mantissa;
     var exp = f.exponent;
@@ -277,16 +155,16 @@ fn ryu128_round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDeci
 ///
 /// If precision is specified, `9 + precision` bytes may be written to the buffer. If the provided buffer is
 /// not larger than this an error will be returned.
-pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
+pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
+    std.debug.assert(buf.len >= max_scientific_output_size);
     var f = f_;
 
-    if (f.exponent == RYU128_SPECIAL_EXPONENT) {
+    if (f.exponent == special_exponent) {
         return copySpecialStr(buf, f);
     }
 
     if (precision) |prec| {
-        f = ryu128_round(f, .scientific, prec);
+        f = round(f, .scientific, prec);
     }
 
     var output = f.mantissa;
@@ -319,7 +197,7 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
         index += @intFromBool(olength == 1);
         if (prec > olength - 1) {
             const len = prec - (olength - 1);
-            writeZeros(buf[index..], len);
+            @memset(buf[index..][0..len], '0');
             index += len;
         } else {
             index = dp_index + prec - @intFromBool(prec == 0);
@@ -366,16 +244,16 @@ pub noinline fn ryu128_scientific(buf: []u8, f_: FloatDecimal128, precision: ?us
 /// f128: 4971
 ///
 /// These values are based on the minimum subnormal value which will have the longest decimal representation.
-pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= RYU128_MAX_SCIENTIFIC_OUTPUT_SIZE);
+pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
+    std.debug.assert(buf.len >= max_scientific_output_size);
     var f = f_;
 
-    if (f.exponent == RYU128_SPECIAL_EXPONENT) {
+    if (f.exponent == special_exponent) {
         return copySpecialStr(buf, f);
     }
 
     if (precision) |prec| {
-        f = ryu128_round(f, .decimal, prec);
+        f = round(f, .decimal, prec);
     }
 
     var output = f.mantissa;
@@ -406,7 +284,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         const dp_index = index;
 
         const dp_poffset: u32 = @intCast(-dp_offset);
-        writeZeros(buf[index..], dp_poffset);
+        @memset(buf[index..][0..dp_poffset], '0');
         index += dp_poffset;
         writeDecimal(buf[index..], &output, olength);
         index += olength;
@@ -414,7 +292,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         if (precision) |prec| {
             const dp_written = index - dp_index;
             if (prec > dp_written) {
-                writeZeros(buf[index..], prec - dp_written);
+                @memset(buf[index..][0 .. prec - dp_written], '0');
             }
             index = dp_index + prec - @intFromBool(prec == 0);
         }
@@ -424,14 +302,14 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
         if (dp_uoffset >= olength) {
             writeDecimal(buf[index..], &output, olength);
             index += olength;
-            writeZeros(buf[index..], dp_uoffset - olength);
+            @memset(buf[index..][0 .. dp_uoffset - olength], '0');
             index += dp_uoffset - olength;
 
             if (precision) |prec| {
                 if (prec != 0) {
                     buf[index] = '.';
                     index += 1;
-                    writeZeros(buf[index..], prec);
+                    @memset(buf[index..][0..prec], '0');
                     index += prec;
                 }
             }
@@ -446,7 +324,7 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
             if (precision) |prec| {
                 const dp_written = olength - dp_uoffset;
                 if (prec > dp_written) {
-                    writeZeros(buf[index..], prec - dp_written);
+                    @memset(buf[index..][0 .. prec - dp_written], '0');
                 }
                 index = dp_index + prec - @intFromBool(prec == 0);
             }
@@ -456,11 +334,11 @@ pub noinline fn ryu128_decimal(buf: []u8, f_: FloatDecimal128, precision: ?usize
     return buf[0..index];
 }
 
-inline fn cast_i32(v: anytype) i32 {
+fn cast_i32(v: anytype) i32 {
     return @intCast(v);
 }
 
-pub fn ryu128_btod(bits: u128, mantissa_bits: u7, exponent_bits: u5, explicit_leading_bit: bool) FloatDecimal128 {
+pub fn binaryToDecimal(bits: u128, mantissa_bits: u7, exponent_bits: u5, explicit_leading_bit: bool) FloatDecimal128 {
     const bias = (@as(u32, 1) << (exponent_bits - 1)) - 1;
     const ieee_sign = ((bits >> (mantissa_bits + exponent_bits)) & 1) != 0;
     const ieee_mantissa = bits & ((@as(u128, 1) << mantissa_bits) - 1);
@@ -607,19 +485,19 @@ fn decimalLength(v: u128) u32 {
 }
 
 // floor(log_10(2^e))
-inline fn log10Pow2(e: u32) u32 {
+fn log10Pow2(e: u32) u32 {
     std.debug.assert(e <= 1 << 15);
     return @intCast((@as(u64, @intCast(e)) * 169464822037455) >> 49);
 }
 
 // floor(log_10(5^e))
-inline fn log10Pow5(e: u32) u32 {
+fn log10Pow5(e: u32) u32 {
     std.debug.assert(e <= 1 << 15);
     return @intCast((@as(u64, @intCast(e)) * 196742565691928) >> 48);
 }
 
 // if (e == 0) 1 else ceil(log_2(5^e))
-inline fn pow5Bits(e: u32) u32 {
+fn pow5Bits(e: u32) u32 {
     std.debug.assert(e <= 1 << 15);
     return @intCast(((@as(u64, @intCast(e)) * 163391164108059) >> 46) + 1);
 }

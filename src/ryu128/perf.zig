@@ -1,5 +1,5 @@
 const std = @import("std");
-const ryu128 = @import("ryu128.zig");
+const ryu = @import("ryu128.zig");
 
 pub fn main() !void {
     const F = f64;
@@ -45,7 +45,7 @@ fn perf(comptime F: type, generator: anytype, backend: Backend, trials: usize) !
     while (test_num < trials) : (test_num += 1) {
         const f: F = generator.next() orelse unreachable;
         const ser = switch (backend) {
-            .ryu => try ryu128.ryu128_format(&buf, f, .{}),
+            .ryu => try ryu.format(&buf, f, .{}),
             .errol => try std.fmt.bufPrint(&buf, "{}", .{f}),
         };
         sum +%= ser[0];
