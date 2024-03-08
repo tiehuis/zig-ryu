@@ -4,6 +4,8 @@ const std_compat = true;
 
 const special_exponent = 0x7fffffff;
 
+// Returns the minimum buffer size needed to print every float as the specified format for
+// the shortest possible.
 pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
     comptime std.debug.assert(@typeInfo(T) == .Float);
     return switch (mode) {
@@ -80,14 +82,18 @@ fn digits2(value: usize) [2]u8 {
 // Write count digits from output (msb first) to buf. This writes from
 // the tail end of output and modifies output.
 fn writeDecimal(buf: []u8, value: anytype, count: usize) void {
-    // ~20% faster (130ns -> 100ns)
     var i: usize = 0;
-    while (i + 2 <= count) : (i += 2) {
+
+    // ~15% faster (130ns -> 110ns)
+    while (i + 2 < count) : (i += 2) {
         const c: u8 = @intCast(value.* % 100);
         value.* /= 100;
-        @memcpy(buf[count - i - 1 ..][0..2], &digits2(c));
+        const d = digits2(c);
+        buf[count - i - 1] = d[1];
+        buf[count - i - 2] = d[0];
     }
-    if (i + 1 <= count) {
+
+    while (i < count) : (i += 1) {
         const c: u8 = @intCast(value.* % 10);
         value.* /= 10;
         buf[count - i - 1] = '0' + c;
