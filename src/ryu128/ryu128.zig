@@ -2,11 +2,23 @@ const std = @import("std");
 
 const std_compat = true;
 
-// Full precision only.
-pub const max_decimal_output_size = 4971;
-// Full precision only.
-pub const max_scientific_output_size = 53;
-pub const special_exponent = 0x7fffffff;
+const special_exponent = 0x7fffffff;
+
+pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
+    comptime std.debug.assert(@typeInfo(T) == .Float);
+    return switch (mode) {
+        .scientific => 53,
+        // Based on minimum subnormal values.
+        .decimal => switch (@bitSizeOf(T)) {
+            16 => 13,
+            32 => 50,
+            64 => 329,
+            80 => 4956,
+            128 => 4971,
+            else => unreachable,
+        },
+    };
+}
 
 // See formatScientific and formatDecimal for choosing an appropriate buffer size.
 const RyuError = error{
@@ -156,7 +168,7 @@ fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 
 /// If precision is specified, `9 + precision` bytes may be written to the buffer. If the provided buffer is
 /// not larger than this an error will be returned.
 pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= max_scientific_output_size);
+    std.debug.assert(buf.len >= bufferSize(.scientific, f128));
     var f = f_;
 
     if (f.exponent == special_exponent) {
@@ -235,17 +247,9 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
 ///
 /// If precision is specified, `2 + precision` bytes will always be written.
 ///
-/// If precision is not specified, the approximate max buffer size needed to print every representation
-/// for a specific type is:
-///
-///  f16: 13
-///  f32: 50
-///  f64: 329
-/// f128: 4971
-///
-/// These values are based on the minimum subnormal value which will have the longest decimal representation.
+/// If no precision is specified, see bufferSize(.decimal) for the require size.
 pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= max_scientific_output_size);
+    std.debug.assert(buf.len >= bufferSize(.decimal, f32));
     var f = f_;
 
     if (f.exponent == special_exponent) {
