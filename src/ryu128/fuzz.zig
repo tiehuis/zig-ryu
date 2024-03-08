@@ -2,9 +2,12 @@ const std = @import("std");
 const ryu128 = @import("ryu128.zig");
 
 pub fn main() !void {
-    const F = f16;
-    const method: Method = .exhaustive;
+    const F = f64;
+    const method: Method = .random;
     const seed = 0;
+    const format_mode: ryu128.Format = .scientific;
+    const precision: Precision = .{ .random = 1000 };
+    const test_mode: TestMode = .crash_check;
 
     std.debug.print("fuzzing: type={s} method={s} seed={}\n\n", .{ @typeName(F), @tagName(method), seed });
 
@@ -12,12 +15,18 @@ pub fn main() !void {
         .exhaustive => ExhaustiveGenerator(F).init(),
         .random => RandomGenerator(F).init(seed),
     };
-    try fuzzRoundTrip(F, &g);
+    try fuzzRoundTrip(F, &g, test_mode, seed, format_mode, precision);
 }
 
 const Method = enum {
     exhaustive,
     random,
+};
+
+const Precision = union(enum) {
+    shortest,
+    fixed: usize,
+    random: usize,
 };
 
 pub fn ExhaustiveGenerator(comptime F: type) type {
@@ -58,9 +67,16 @@ pub fn RandomGenerator(comptime F: type) type {
     };
 }
 
-fn fuzzRoundTrip(comptime F: type, generator: anytype) !void {
+const TestMode = enum {
+    round_trip,
+    crash_check,
+    // std_compare, // Annoying to compare since printing a fixed precision at runtime with std is difficult
+};
+
+fn fuzzRoundTrip(comptime F: type, generator: anytype, test_mode: TestMode, seed: usize, format_mode: ryu128.Format, comptime precision: Precision) !void {
     const I = std.meta.Int(.unsigned, @bitSizeOf(F));
     var buf: [6000]u8 = undefined;
+    var rng = std.Random.DefaultPrng.init(seed);
 
     var test_num: usize = 0;
     while (generator.next()) |f| : (test_num += 1) {
@@ -69,31 +85,64 @@ fn fuzzRoundTrip(comptime F: type, generator: anytype) !void {
             std.debug.print("{}\n", .{test_num});
         }
 
-        const f_bits: I = @bitCast(f);
-        const ser = try ryu128.ryu128_format(&buf, f, .{});
-        const deser = try std.fmt.parseFloat(F, ser);
-        const deser_bits: I = @bitCast(deser);
+        const p = switch (precision) {
+            .shortest => null,
+            .fixed => |v| v,
+            .random => |upper_bound| rng.random().intRangeLessThan(usize, 0, upper_bound),
+        };
 
-        if (!std.math.isNan(f) and f_bits != deser_bits) {
-            std.debug.print(
-                \\{s} {}: {}
-                \\==========
-                \\ input: bits=0x{x} float={}
-                \\output: bits=0x{x} float={}
-                \\
-                \\ ryu string: {s}
-                \\
-            , .{
-                @typeName(F),
-                test_num,
-                f,
-                f_bits,
-                f,
-                deser_bits,
-                deser,
-                ser,
-            });
-            return error.Failed;
+        const f_bits: I = @bitCast(f);
+        const ser = try ryu128.format(&buf, f, .{ .mode = format_mode, .precision = p });
+
+        switch (test_mode) {
+            .round_trip => {
+                const deser = try std.fmt.parseFloat(F, ser);
+                const deser_bits: I = @bitCast(deser);
+
+                if (!std.math.isNan(f) and f_bits != deser_bits) {
+                    std.debug.print(
+                        \\{s} {}: {}
+                        \\==========
+                        \\ input: bits=0x{x} float={}
+                        \\output: bits=0x{x} float={}
+                        \\
+                        \\ ryu string: {s}
+                        \\
+                    , .{
+                        @typeName(F),
+                        test_num,
+                        f,
+                        f_bits,
+                        f,
+                        deser_bits,
+                        deser,
+                        ser,
+                    });
+                    return error.Failed;
+                }
+            },
+            .crash_check => {
+                for (ser) |c| {
+                    if (!std.ascii.isPrint(c)) {
+                        std.debug.print(
+                            \\{s} {}: {}
+                            \\==========
+                            \\ input: bits=0x{x} float={}
+                            \\
+                            \\ ryu string: {s}
+                            \\
+                        , .{
+                            @typeName(F),
+                            test_num,
+                            f,
+                            f_bits,
+                            f,
+                            ser,
+                        });
+                        return error.Failed;
+                    }
+                }
+            },
         }
     }
 
