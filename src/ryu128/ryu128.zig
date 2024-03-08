@@ -12,11 +12,11 @@ pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
         .scientific => 53,
         // Based on minimum subnormal values.
         .decimal => switch (@bitSizeOf(T)) {
-            16 => 13,
-            32 => 50,
-            64 => 329,
-            80 => 4956,
-            128 => 4971,
+            16 => 15,
+            32 => 55,
+            64 => 347,
+            80 => 4996,
+            128 => 5011,
             else => unreachable,
         },
     };
@@ -255,7 +255,7 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
 ///
 /// If no precision is specified, see bufferSize(.decimal) for the require size.
 pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= bufferSize(.decimal, f32));
+    std.debug.assert(buf.len >= bufferSize(.decimal, f16));
     var f = f_;
 
     if (f.exponent == special_exponent) {
@@ -273,7 +273,10 @@ pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError
     // writes out the full string and truncates/returns the slice of the relevant
     // output so we need to upper bound.
     // bound: leading_digit(1) + point(1) + max(precision, abs(exponent + length)
-    const req_bytes = 2 + @max(precision orelse 0, (@abs(f.exponent) + olength));
+    const req_bytes = if (f.exponent >= 0)
+        2 + @abs(f.exponent) + olength + (precision orelse 0)
+    else
+        2 + @max(@abs(f.exponent) + olength, precision orelse 0);
     if (buf.len < req_bytes) {
         return error.BufferTooSmall;
     }

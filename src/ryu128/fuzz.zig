@@ -6,8 +6,8 @@ pub fn main() !void {
     const method: Method = .random;
     const seed = 0;
     const format_mode: ryu128.Format = .scientific;
-    const precision: Precision = .{ .random = 1000 };
-    const test_mode: TestMode = .crash_check;
+    const precision: Precision = .shortest;
+    const test_mode: TestMode = .round_trip;
 
     std.debug.print("fuzzing: type={s} method={s} seed={}\n\n", .{ @typeName(F), @tagName(method), seed });
 
@@ -73,9 +73,9 @@ const TestMode = enum {
     // std_compare, // Annoying to compare since printing a fixed precision at runtime with std is difficult
 };
 
-fn fuzzRoundTrip(comptime F: type, generator: anytype, test_mode: TestMode, seed: usize, format_mode: ryu128.Format, comptime precision: Precision) !void {
+fn fuzzRoundTrip(comptime F: type, generator: anytype, comptime test_mode: TestMode, comptime seed: usize, comptime format_mode: ryu128.Format, comptime precision: Precision) !void {
     const I = std.meta.Int(.unsigned, @bitSizeOf(F));
-    var buf: [6000]u8 = undefined;
+    var buf: [ryu128.bufferSize(format_mode, F)]u8 = undefined;
     var rng = std.Random.DefaultPrng.init(seed);
 
     var test_num: usize = 0;

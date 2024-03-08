@@ -71,6 +71,8 @@ test "round-trip" {
     try checkRound(f32, 9.9999, 5);
 
     try checkRound(f32, @bitCast(@as(u32, 0)), 5);
+
+    try checkRound(f64, 1234e40, 2);
 }
 
 pub fn main() !void {
