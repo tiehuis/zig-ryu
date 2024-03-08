@@ -4,6 +4,10 @@ const std_compat = true;
 
 const special_exponent = 0x7fffffff;
 
+// This is provided for convience. Any buffer passed to a format function must be at least this
+// large. A runtime check will still be performed if required to validate output.
+pub const min_buffer_size = 53;
+
 // Returns the minimum buffer size needed to print every float as the specified format for
 // the shortest possible.
 pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
@@ -171,10 +175,10 @@ fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 
 /// The buffer provided must be greater than 53 bytes in length. If no precision is specified this function
 /// will never return an error.
 ///
-/// If precision is specified, `9 + precision` bytes may be written to the buffer. If the provided buffer is
+/// If precision is specified, `8 + precision` bytes may be written to the buffer. If the provided buffer is
 /// not larger than this an error will be returned.
 pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= bufferSize(.scientific, f128));
+    std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
     if (f.exponent == special_exponent) {
@@ -255,7 +259,7 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
 ///
 /// If no precision is specified, see bufferSize(.decimal) for the require size.
 pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
-    std.debug.assert(buf.len >= bufferSize(.decimal, f16));
+    std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
     if (f.exponent == special_exponent) {

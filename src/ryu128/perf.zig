@@ -3,7 +3,7 @@ const ryu = @import("ryu128.zig");
 
 pub fn main() !void {
     const F = f64;
-    const backend: Backend = .ryu;
+    const backend: Backend = .errol;
     const seed = 1;
     const trials = 1_000_000;
 
